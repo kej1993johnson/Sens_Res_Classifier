@@ -22,6 +22,9 @@ import os
 import scanpy as sc
 import seaborn as sns
 from plotnine import *
+import matplotlib as plt
+os.chdir('/Users/kj22643/Documents/Documents/231_Classifier_Project/code')
+from func_file import find_eigenvectors_fxn
 path = '/Users/kj22643/Documents/Documents/231_Classifier_Project/data'
 #path = '/stor/scratch/Brock/231_10X_data/'
 os.chdir(path)
@@ -29,24 +32,137 @@ sc.settings.figdir = 'KJ_plots'
 sc.set_figure_params(dpi_save=300)
 sc.settings.verbosity = 3
 #%% Load in pre and post data
-adata_pre = sc.read('KJ_adatapre.h5ad')
-adata_post = sc.read('KJ_adatapost.h5ad')
-# Make ann data objects into pandas data frames
-dfpre = pd.concat([adata_pre.obs['survivor'], adata_pre.obs['sample'],pd.DataFrame(adata_pre.raw.X,index=adata_pre.obs.index,
+adata = sc.read('daylin_anndata.h5ad')
+adata.obs.head()
+#BgL1K
+#30hr
+#Rel-1
+#Rel-2
+#%% Assign survivor category in adata.obs
+longTreatLins = adata.obs.loc[(adata.obs['sample'].isin(['Rel-1','Rel-2']))&(adata.obs.lineage!='nan'),'lineage'].unique().tolist()
+
+adata.obs.loc[adata.obs.lineage.isin(longTreatLins)==False,'survivor'] = 'sens'
+adata.obs.loc[adata.obs.lineage.isin(longTreatLins)==True,'survivor'] = 'res'
+
+
+
+sc.pl.umap(adata,color=['survivor'],wspace=0.3,
+           save='alltps_res_sens.png')
+# %%try to rename the samples by time point
+samps= adata.obs['sample'].unique()
+
+timepoint = np.array(['t=0hr', 't=30hr', 't=1344hr'])
+
+adata.obs.loc[adata.obs['sample']==samps[0], 'timepoint']='t=0hr'
+adata.obs.loc[adata.obs['sample']==samps[1], 'timepoint']='t=30hr'
+adata.obs.loc[adata.obs['sample']==samps[2], 'timepoint']='t=1344hr'
+adata.obs.loc[adata.obs['sample']==samps[3], 'timepoint']='t=1344hr'
+
+print(adata.obs['timepoint'].unique())
+
+
+sc.pl.umap(adata,color = ['timepoint'], palette=['#2c9e2f','#046df7', '#d604f7', '#c91212'], wspace=0.3,
+           save = 'TPs_umap.png')
+#%% Separately make dataframes for the pre-treatment, intermediate, and post treatment samples
+# t=0 hr (pre-treatment), 3182 pre treatment cells
+adata_pre = adata[adata.obs['timepoint']=='t=0hr', :]
+dfpre = pd.concat([adata_pre.obs['survivor'],
+               pd.DataFrame(adata_pre.raw.X,index=adata_pre.obs.index,
                             columns=adata_pre.var_names),],axis=1) 
-dfpost= pd.concat([adata_post.obs['sample'],pd.DataFrame(adata_post.raw.X,index=adata_post.obs.index,
-                            columns=adata_post.var_names),],axis=1) 
+# t = 30 hr (intermediate timepoint) 5169 int treatment cells
+adata_int = adata[adata.obs['timepoint']=='t=30hr', :]
+dfint = pd.DataFrame(adata_int.raw.X, index=adata_int.obs.index, columns = adata_int.var_names)
+
+# t=1344 hr (~roughly 8 weeks), 10332 post treatment cells
+adata_post = adata[adata.obs['timepoint']=='t=1344hr', :]
+dfpost = pd.DataFrame(adata_post.raw.X, index=adata_post.obs.index, columns = adata_post.var_names)
+
 #%% Try making a UMAP of the first sample only
 
 sc.pl.umap(adata_pre,color=['survivor'],wspace=0.3,
            save='pre_treat_res_sens.png')
+#%% Play with scanpys PCA
+sc.tl.pca(adata_pre, n_comps=50, zero_center=True, svd_solver='auto', random_state=0, return_info=False, use_highly_variable=None, dtype='float32', copy=False, chunked=False, chunk_size=None)
+#%%
+classvecser= adata_pre.obs['survivor']
+classvec = pd.DataFrame(classvecser)
 
-sc.pl.umap(adata_post,color=['sample'],wspace=0.3,
-           save='post_treat_umap.png')
+PCs=adata_pre.obsm['X_pca']
+PCdf = pd.DataFrame(PCs)
+classvec.reset_index(drop=True, inplace=True)
+PCdf.reset_index(drop=True, inplace=True)
 
-#%% See if we cam plot the first two PCs
-sc.pl.pca(adata_pre, color=['survivor'],wspace=0.3,
-          save= 'pre_treat_pca.png')
+PC_df=pd.concat([classvec['survivor'],PCdf], axis =1)
+#%%
+sns.set_style('white')
+from matplotlib.pyplot import plot, show, draw, figure, cm
+import matplotlib.pyplot as plt
+fig = plt.figure(figsize=(6,6))
+
+
+ax=sns.scatterplot(PC_df[0], PC_df[1], hue= PC_df['survivor'])
+ax.set(xlabel ='PC1', ylabel ='PC2') 
+#%%
+ax1=sns.scatterplot(PC_df[1], PC_df[2], hue= PC_df['survivor'])
+ax1.set(xlabel ='PC2', ylabel ='PC3') 
+#%%
+ax2=sns.scatterplot(PC_df[2], PC_df[3], hue= PC_df['survivor'])
+ax2.set(xlabel ='PC3', ylabel ='PC4') 
+#%%
+ax3=sns.scatterplot(PC_df[0], PC_df[2], hue= PC_df['survivor'])
+ax3.set(xlabel ='PC1', ylabel ='PC3') 
+#%%
+
+ax4=sns.scatterplot(PC_df[0], PC_df[3], hue= PC_df['survivor'])
+ax4.set(xlabel ='PC1', ylabel ='PC4')
+#%%
+
+ax5=sns.scatterplot(PC_df[1], PC_df[3], hue= PC_df['survivor'])
+ax5.set(xlabel ='PC2', ylabel ='PC4')
+#%% ATTEMPT AT MAKING a 3D scatter plot with PCs 1, 2, & 3
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.pyplot as plt
+fig = plt.figure(figsize=(15,15))
+ax=fig.add_subplot(111,projection='3d')
+
+PC_dfsens = PC_df[PC_df['survivor']=='sens']
+PC_dfres = PC_df[PC_df['survivor']=='res']
+Xs= np.asarray(PC_dfsens[0])
+Ys=np.asarray(PC_dfsens[2])
+Zs=np.asarray(PC_dfsens[3])
+
+Xr= np.asarray(PC_dfres[0])
+Yr=np.asarray(PC_dfres[2])
+Zr=np.asarray(PC_dfres[3])
+
+ax.scatter(Xr, Yr, Zr, c='b', marker='^', alpha = 1)
+ax.scatter(Xs, Ys, Zs, c='r', marker='o', alpha = 0.3)
+
+
+ax.set_xlabel('PC1')
+ax.set_ylabel('PC3')
+ax.set_zlabel('PC4')
+
+ax.azim = 100
+ax.elev = 20
+#%%
+
+sensID = np.zeros((len(classvec), 1))
+for i in range(len(classvec)):
+    if classvec.survivor[i]=='sens':
+        sensID[i]=1
+    if classvec.survivor[i]=='res':
+        sensID[i]=0
+
+ax = Axes3D(fig) # Method 1
+ax.scatter(PC_df[0], PC_df[1], PC_df[2])
+
+#%% PCA Overview
+sc.pl.pca_overview(adata_pre)
+#%%
+loadings=adata_pre.varm['PCs']
+
+plt.arrow(0,0, loadings[1,PCdf[1], loadings[1, PCdf[2]]])
 #%%
 print(dfpre) # 22192 columns corresponding to 22191 genes
 #%% Make series that label the pre-treatment cells as res/sens and label the 
