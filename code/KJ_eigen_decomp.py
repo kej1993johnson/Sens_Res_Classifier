@@ -22,9 +22,15 @@ import os
 import scanpy as sc
 import seaborn as sns
 from plotnine import *
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.pyplot import plot, show, draw, figure, cm
 import matplotlib as plt
+import random
 os.chdir('/Users/kj22643/Documents/Documents/231_Classifier_Project/code')
-from func_file import find_eigenvectors_fxn
+from func_file import find_meanvec
+from func_file import find_eigvals
+from func_file import find_eigvecs
+from func_file import project_cells
 path = '/Users/kj22643/Documents/Documents/231_Classifier_Project/data'
 #path = '/stor/scratch/Brock/231_10X_data/'
 os.chdir(path)
@@ -102,26 +108,23 @@ fig = plt.figure(figsize=(6,6))
 
 ax=sns.scatterplot(PC_df[0], PC_df[1], hue= PC_df['survivor'])
 ax.set(xlabel ='PC1', ylabel ='PC2') 
-#%%
+
 ax1=sns.scatterplot(PC_df[1], PC_df[2], hue= PC_df['survivor'])
 ax1.set(xlabel ='PC2', ylabel ='PC3') 
-#%%
+
 ax2=sns.scatterplot(PC_df[2], PC_df[3], hue= PC_df['survivor'])
 ax2.set(xlabel ='PC3', ylabel ='PC4') 
-#%%
+
 ax3=sns.scatterplot(PC_df[0], PC_df[2], hue= PC_df['survivor'])
 ax3.set(xlabel ='PC1', ylabel ='PC3') 
-#%%
 
 ax4=sns.scatterplot(PC_df[0], PC_df[3], hue= PC_df['survivor'])
 ax4.set(xlabel ='PC1', ylabel ='PC4')
-#%%
 
 ax5=sns.scatterplot(PC_df[1], PC_df[3], hue= PC_df['survivor'])
 ax5.set(xlabel ='PC2', ylabel ='PC4')
 #%% ATTEMPT AT MAKING a 3D scatter plot with PCs 1, 2, & 3
-from mpl_toolkits.mplot3d import Axes3D
-import matplotlib.pyplot as plt
+
 fig = plt.figure(figsize=(15,15))
 ax=fig.add_subplot(111,projection='3d')
 
@@ -132,51 +135,37 @@ Ys=np.asarray(PC_dfsens[2])
 Zs=np.asarray(PC_dfsens[3])
 
 Xr= np.asarray(PC_dfres[0])
-Yr=np.asarray(PC_dfres[2])
-Zr=np.asarray(PC_dfres[3])
+Yr=np.asarray(PC_dfres[1])
+Zr=np.asarray(PC_dfres[2])
 
 ax.scatter(Xr, Yr, Zr, c='b', marker='^', alpha = 1)
 ax.scatter(Xs, Ys, Zs, c='r', marker='o', alpha = 0.3)
 
 
 ax.set_xlabel('PC1')
-ax.set_ylabel('PC3')
-ax.set_zlabel('PC4')
+ax.set_ylabel('PC2')
+ax.set_zlabel('PC3')
 
 ax.azim = 100
-ax.elev = 20
-#%%
-
-sensID = np.zeros((len(classvec), 1))
-for i in range(len(classvec)):
-    if classvec.survivor[i]=='sens':
-        sensID[i]=1
-    if classvec.survivor[i]=='res':
-        sensID[i]=0
-
-ax = Axes3D(fig) # Method 1
-ax.scatter(PC_df[0], PC_df[1], PC_df[2])
+ax.elev = -50
+# NEXT NEED TO FIND OUT HOW TO OUT ARROWS ON THIS
 
 #%% PCA Overview
 sc.pl.pca_overview(adata_pre)
 #%%
 loadings=adata_pre.varm['PCs']
 
-plt.arrow(0,0, loadings[1,PCdf[1], loadings[1, PCdf[2]]])
 #%%
 print(dfpre) # 22192 columns corresponding to 22191 genes
 #%% Make series that label the pre-treatment cells as res/sens and label the 
 # label the post treatment cells by their sample
 labelsdfpre = dfpre['survivor']
 print(labelsdfpre)
-samplabspost = dfpost['sample']
-print(samplabspost)
+
 #%% Make matrices (data frames) of just the cell-gene matrix for the pre treatment and 
 # post treatment samples
-genematpre1 = dfpre.loc[:, dfpre.columns !='survivor']
-genematpre= genematpre1.loc[:, genematpre1.columns !='sample']
+genematpre = dfpre.loc[:, dfpre.columns !='survivor']
 
-genematpost = dfpost.loc[:, dfpost.columns !='sample']
 print(genematpre)
 # Now genematpre and genemat post are your ncells rows x ngenes columns gene 
 # expression matrices.
@@ -186,103 +175,96 @@ print(genematpre)
 # cells (so each column is a cell and each row is a gene)
 
 # let's see if we can make that in python and call it Adf
-npost =genematpost.shape[0]
+nint = dfint.shape[0]
+npost =dfpost.shape[0]
 npre = genematpre.shape[0] # this gets the number of rows in the df (number of cells)
-ntrain = 8*round(ncells/10)  # start by setting the number of training cells to 1/10th 
+# Set your k for your k-fold cross validation to divide up testing and training data sets
+kCV=4
+ntrain = round(((kCV-1)/kCV)*npre)+1  # start by setting the number of training cells to 1/10th 
 ntest = npre-ntrain
-#%% Make your full data frames (including the testing and training data set from the pre-treatment time point)
+#%% Make your full data frames (include both the testing and training data set from the pre-treatment time point)
 # Call these Adf
 AdfT= genematpre
 Adf = AdfT.T
 print(Adf)
-ApoT= genematpost
+AintT=dfint
+Aint= AintT.T
+ApoT= dfpost
 Apost= ApoT.T
 #%% Make susbets of the full data frame for training and testing
-# Training data set (first 1:ntrain cells)
-AtrT= AdfT.iloc[0:ntrain]
-Atr = AtrT.T
-print(Atr)
-# Testing data set (ntrain to end cells)
-AtestT= AdfT.iloc[ntrain:]
-Atest = AtestT.T
-# now we have each cell as a column and each row as a gene.
-# We are going to use the training subset to find the eigenvectors and then 
-# get the coordinates of each training cell in eigenspace
-#%% First we want to find the mean gene expression level vector 
-m = Atr.mean(axis =1) # axis = 1 means we find the mean along each row
-print(m)
+# Going to perform k-fold CV with k=4
 
-# Next, make our small covariance matrix (ntrain x ntrain)
-# subtract the mean from each column of the  the training matrix (ngenes x ntrain)
-X = Atr.sub(m, axis=0) # we subtract from each column
-print(X)
-# convert the subtracted gene expression matrix to a matrix 
-# Xmat should be ngenes x ntrain
-Xmat= X.as_matrix()
-# transpose it 
-# this should be ntrain x ngenes
-XmatT = Xmat.T
-# since we have less cells than genes, we can use the trick to make a smaller cov matrix
-# which is the (ntrain x ngenes * ngenes x ntrain = ntrain x ntrain square small covariance matrix)
-smallcov = np.matmul(XmatT,Xmat) # Now you have your ntrain x ntrain small covariance matrix
-
-#%%Find the eigenvectors of the small covariance matrix
+indexes = [i for i, _ in enumerate(Adf)]
+ordered_ind= random.sample(indexes, ntest*kCV)
+train_folds = {}
+test_folds = {}
+labstest = {}
+labstrain = {}
+Vfolds = {}
+lamfolds = {}
+mfolds = {}
 
 
+#%% Make dictionaries that hold training and testing data set labels. 
+for i in range(kCV):
+# test out grabbing a subset of columns from a dataframe
+    itest=ordered_ind[i*ntest:ntest*(i+1)]
+    itrain =[j for j in indexes if j not in itest]
+    Atest = Adf.iloc[:,itest]
+    Atrain = Adf.iloc[:,itrain]
+    labstest[i] = labelsdfpre.iloc[itest]
+    labstrain[i] = labelsdfpre.iloc[itrain]
+    # Save the testing and training data frames into a data frame that holds all of them.    
+    train_folds[i] = Atrain
+    test_folds[i] = Atest
+    # Find the mean vector, eigenvalues, and eigenvectors
+    m = find_meanvec(A=Atrain)
+    lams = find_eigvals(A=Atrain, mu=m )
+    V = find_eigvecs(A=Atrain, mu = m)
+    # Save the training set mean vector, eigenvalues, and eigenvectors
+    Vfolds[i]=V
+    lamfolds[i]=lams
+    mfolds[i]=m
+    # find the coordinates of the training and testing cells by projecting onto eigenvectors (V)
 
-# in MATLAB:
-# [Vsmall,D] =eig(smallcov)
-# lamdas = diag(D)
-# [orderedvals, ind] = sort(lambdas, 'descend');
-# Vnew = Vsmall(:,ind);
-#Vbig = A0*Vnew;
-# Want to normalize each eigenvector
-#k = length(lambdas);
-#for j = 1:k
-    ## find the 2-norm of each column
-    #norms(j) = norm(Vbig(:,j));
+#%% Make a dictionary which contains the training matrix, labels, eigenvectors,
+    # eigen values, and mean vectors
+full_dict = {'trainmat':{}, 'trainlabel':{}, 'eigenvectors':{}, 'eigvals':{}, 'meanvec':{}}
+full_dict['trainmat']= Adf
+full_dict['trainlabel']=labelsdfpre
+mpre = find_meanvec(A=Adf)
+lamspre = find_eigvals(A=Adf, mu = mpre)
+Vall=find_eigvecs(A=Adf, mu = mpre)
+full_dict['eigenvectors']=Vall
+full_dict['eigvals']= lamspre
+full_dict['meanvec']=mpre
+
+ #%% Merge the dictionaries of testing and training matrices, labels, eigenvectors, eigenvalues, and mean vectorfo
+folds_dict = {'trainmats': {},'testmats': {}, 'trainlabels':{}, 'testlabels':{},
+              'eigenvectors':{}, 'eigvals':{}, 'meanvecs':{}}
+
+folds_dict['trainmats']= train_folds
+folds_dict['testmats']=test_folds
+print(folds_dict)
+
+
+
     
-    #V(:,j) = Vbig(:,j)./norms(j);
-#end
+    #%%   Start with one example-- last Atrain and Atest
     
-#%% Find eigenvectors and sort them in order of eigenvalues   
-from numpy import linalg as LA
-# should get a vector of ntrain lambdas, and a square matrix ntrain x ntrain of the eigenvectors
-lambdas, Vsmall= LA.eig(smallcov)
-# returns the eigenvalues (lambdas) and eigenvectors that are normalized (Euclidean norms are 1)
-print(lambdas)
+    neigs=100
+    trainmat = project_cells(Atrain, V, neigs)
+    testmat = project_cells(Atest, V,neigs)
+    # find distance between columns of testmat and columns of training mat
+    #distmat = ordered_dist(trainmat, testmat) 
+    # For each testing cell we have two columns- one is the distance to the 
+    # nearest to furthest training cell, and the second is the index of the training cell matrix
+    # (trainmat) that that corresponds to.
+    
+    # We can then use this distance and the indices to come up with the class estimates using a few different distance etrics
+    # Start with Euclidean distance and nearest neighbor classification
 
-#%% Want to sort the lambdas in descending order
-# arg sort naturally sorts in ascending order, so make it negative
-ind_arr = np.argsort(-abs(lambdas))
 
-#%% Now your ind_arr should start with the highest eigenvalue and work its way down
-# print the indices to check that the first is the highest lambda and the last is the lowest
-print(ind_arr) 
-ordered_lambdas = lambdas[ind_arr]
-print(ordered_lambdas)
-#%% Reorder your lambdas and eigenvectors (Vsmall)
-Vnew = Vsmall[ind_arr]
-#%% Now apply to the big system
-# Since XX'x=mux
-# Let x = Xv
-# XX'Xv = mu Xv
-# XX' = big cov matrix
-# X'X = small cov matrix
-
-# These are the eigenvectors of the big covariance matrix 
-# ngenes x ntrain x ntrain x ntrain gives ngenes x ntrain
-Vbig = np.matmul(Xmat, Vnew)
-# These vectors of length ntrain are the eigenvectors, in order of importance (eigenvalue)
-# Vbig is now an ngenes by ntrain matrix of eigenvectors (each column =1 eigenvector)
-
-#%% Renormalize: Now that you have your ngenes x ntraining cells matrix of 
-#eigenvectors, make sure the big covariance matrix is normalized
-norms = LA.norm(Vbig, axis = 0)
-Vnorm = Vbig/norms # divides each column by its norm
-testnorms = LA.norm(Vnorm, axis = 0) # want to ensure these are all essentially 1
-# Vnorm is your normalized, ordered, eigenvectors. They are ordered by the value of the 
-# ordered eigenvalue 
 #%% Now you have the Eigenspace, defined by Vnorm, which contains normalized eigenvectors of
 # the length of the number of genes, in order of importance.
 
