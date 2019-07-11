@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+Created on Wed Jul 10 16:45:38 2019
+
+@author: kj22643
+"""
+
+"""
 Created on Wed Jul  3 12:22:02 2019
 
 @author: kj22643
@@ -108,6 +114,10 @@ print(adata.obs['timepoint'].unique())
 # t=0 hr (pre-treatment), 3182 pre treatment cells
 # We want to keep the info about the lineage so we can potentially
 # use it to make evenly divided testing and training data sets
+dfall = pd.concat([adata.obs['lineage'], adata.obs['leiden'],
+               pd.DataFrame(adata.raw.X,index=adata.obs.index,
+                            columns=adata.var_names),], axis=1) 
+
 adata_pre = adata[adata.obs['timepoint']=='t=0hr', :]
 dfpre = pd.concat([adata_pre.obs['lineage'], adata_pre.obs['leiden'],
                pd.DataFrame(adata_pre.raw.X,index=adata_pre.obs.index,
@@ -176,7 +186,7 @@ dfpre['survivor'] = np.where(dfpre['foldchange']>0, 'res', 'sens')
 #%% Use sklearn to do principle component analysis on the  entire pre-treatment sample
 #X = dfpre.loc[:, dfpre.columns !='survivor', dfpre.columns !='lineage']
 X = dfpre.drop(columns= ['survivor', 'lineage', 'leiden', 'linabundpost', 'linabundpre', 'foldchange', 'logfoldchange'])
-
+Xall = dfall.drop(columns = ['lineage', 'leiden'])
 y= pd.factorize(dfpre['survivor'])[0] 
 y ^= 1
 leidlist = dfpre['leiden']
@@ -318,11 +328,200 @@ print(sigmasq_SVM)
 # Make your cell gene matrices
 Xint = dfint.drop(columns= ['lineage', 'leiden'])
 Xpost = dfpost.drop(columns =['lineage', 'leiden'])
-#%%
+#%% Perform PCA on the all cells from all sample 
 # Already defined PCA and SVM hyperparameters above
 
 # Start by builing model using all the data from the pre-treatment time point
-pca.fit(X, y)
+pca.fit(Xall)
+# Compute the eigenvector space 
+Vall = pca.fit_transform(Xall)
+PCsall = pca.transform(Xall)
+
+## Try performing kmeans clustering
+# Do this on principal components of each cell, not the raw reads...
+from sklearn.cluster import KMeans
+kmeans = KMeans(n_clusters=3, random_state=0).fit(PCspre)
+state_lab = kmeans.labels_
+kclustpre = state_lab[0:len(X)]
+#kclustint = state_lab[len(X):len(X)+len(Xint)]
+#kclustpost = state_lab[len(X)+len(Xint):]
+
+# allocate the state labels to pre, int, and post -treatment cells 
+
+
+
+
+
+
+
+
+#%% Project the intermediate and post treatment samples into the principal component space
+# This is mostly for visualiation purposes, but also to evaluate if the post-treatment 
+# cells are more different in some principal components than others
+
+
+
+
+PCspre=pca.transform(X)
+PCsint = pca.transform(Xint)
+PCspost = pca.transform(Xpost)
+
+#%%
+# Pre-treatment
+PC_df = pd.DataFrame(PCspre)
+PC_df.reset_index(drop=True, inplace=True)
+PC_df['classlabel'] = y
+PC_df['kclust'] = kclustpre
+PC_df['time'] = 0
+leidlist = leidlist.astype('int64')
+PC_df['leiden'] = leidlist.values
+
+# t= 30 hr
+PCintdf = pd.DataFrame(PCsint)
+PCintdf.reset_index(drop=True, inplace=True)
+#PCintdf['kclust'] = kclustint
+PCintdf['time'] = 30
+leidlistint = leidlistint.astype('int64')
+PCintdf['leiden']= leidlistint.values
+
+# t = 1344 hr
+PCpostdf = pd.DataFrame(PCspost)
+PCpostdf.reset_index(drop=True, inplace=True)
+#PCpostdf['kclust'] = kclustpost
+PCpostdf['time'] = 1344
+leidlistpost = leidlistpost.astype('int64')
+PCpostdf['leiden'] = leidlistpost.values
+
+
+PCall = pd.concat([PC_df,PCintdf, PCpostdf], axis=0)
+
+# A
+
+
+#%% PC1 PC2 and PC3
+fig = plt.figure(figsize=(15,15))
+ax=fig.add_subplot(111,projection='3d')
+
+PC_dfsens = PC_df[PC_df['kclust']==0]
+PC_dfres = PC_df[PC_df['kclust']==1]
+PC_dftol = PC_df[PC_df['kclust']==2]
+PC_dflin = PC_df[PC_df['classlabel']==1]
+Xs= np.asarray(PC_dfsens[0])
+Ys=np.asarray(PC_dfsens[1])
+Zs=np.asarray(PC_dfsens[2])
+
+Xr= np.asarray(PC_dfres[0])
+Yr=np.asarray(PC_dfres[1])
+Zr=np.asarray(PC_dfres[2])
+
+Xt= np.asarray(PC_dftol[0])
+Yt=np.asarray(PC_dftol[1])
+Zt=np.asarray(PC_dftol[2])
+
+Xl= np.asarray(PC_dflin[0])
+Yl=np.asarray(PC_dflin[1])
+Zl=np.asarray(PC_dflin[2])
+
+Xint= np.asarray(PCintdf[0])
+Yint=np.asarray(PCintdf[1])
+Zint=np.asarray(PCintdf[2])
+
+Xpost= np.asarray(PCpostdf[0])
+Ypost=np.asarray(PCpostdf[1])
+Zpost=np.asarray(PCpostdf[2])
+
+res_cells = ax.scatter(Xr, Yr, Zr, c='y', marker='^', alpha = 0.4, label = 't=0 hr state 1')
+tol_cells = ax.scatter(Xt, Yt, Zt, c='r', marker='^', alpha = 0.2, label = 't=0 hr state 3')
+sens_cells = ax.scatter(Xs, Ys, Zs, c='k', marker='o', alpha = 0.3, label = 't= 0 hr state 2')
+lin_cells = ax.scatter(Xl, Yl, Zl, c='b', marker='o', alpha = 1, label = 'resistant lineages')
+#int_cells = ax.scatter(Xint, Yint, Zint, c='g', marker = 'o', alpha = 0.2, label = 't=30 hr')
+#post_cells = ax.scatter(Xpost, Ypost, Zpost, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
+
+ax.set_xlabel('PC1')
+ax.set_ylabel('PC2')
+ax.set_zlabel('PC3')
+plt.legend(loc=2, prop={'size': 25})
+#plt.title('Pre and post-treatment cells in PC space',fontsize= 20)
+
+#ax.legend([sens_cells, res_cells], ['t=0 hr sens', 't=0 hr res'])
+
+ax.azim = 100
+ax.elev = 50
+
+#%% PC1 vs PC2
+
+fig = plt.figure(figsize=(10,10))
+
+PC_dfsens = PC_df[PC_df['classlabel']==0]
+PC_dfres = PC_df[PC_df['classlabel']==1]
+Xs= np.asarray(PC_dfsens[0])
+Ys=np.asarray(PC_dfsens[1])
+
+
+Xr= np.asarray(PC_dfres[0])
+Yr=np.asarray(PC_dfres[1])
+
+
+
+Xint= np.asarray(PCintdf[0])
+Yint=np.asarray(PCintdf[1])
+
+Xpost= np.asarray(PCpostdf[0])
+Ypost=np.asarray(PCpostdf[1])
+
+
+res_cells = plt.scatter(Xr, Yr, c='b', marker='^', alpha = 1, label = 't=0 hr res')
+sens_cells = plt.scatter(Xs, Ys,  c='r', marker='o', alpha = 0.3, label = 't= 0 hr sens')
+int_cells = plt.scatter(Xint, Yint, c='g', marker = 'o', alpha = 0.2, label = 't=30 hr')
+post_cells = plt.scatter(Xpost, Ypost, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
+
+plt.xlabel('PC1')
+plt.ylabel('PC2')
+
+plt.legend(loc=2, prop={'size': 25})
+#%% PC2 vs PC3
+
+fig = plt.figure(figsize=(10,10))
+
+PC_dfsens = PC_df[PC_df['classlabel']==0]
+PC_dfres = PC_df[PC_df['classlabel']==1]
+Xs= np.asarray(PC_dfsens[1])
+Ys=np.asarray(PC_dfsens[2])
+
+
+Xr= np.asarray(PC_dfres[1])
+Yr=np.asarray(PC_dfres[2])
+
+
+
+Xint= np.asarray(PCintdf[1])
+Yint=np.asarray(PCintdf[2])
+
+Xpost= np.asarray(PCpostdf[1])
+Ypost=np.asarray(PCpostdf[2])
+
+
+res_cells = plt.scatter(Xr, Yr, c='b', marker='^', alpha = 1, label = 't=0 hr res')
+sens_cells = plt.scatter(Xs, Ys,  c='r', marker='o', alpha = 0.3, label = 't= 0 hr sens')
+int_cells = plt.scatter(Xint, Yint, c='g', marker = 'o', alpha = 0.2, label = 't=30 hr')
+post_cells = plt.scatter(Xpost, Ypost, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
+
+plt.xlabel('PC2')
+plt.ylabel('PC3')
+
+plt.legend(loc=2, prop={'size': 25})
+
+
+
+
+
+
+
+
+
+#%% Perform PCA on the pre-treatment sample only
+# Start by builing model using all the data from the pre-treatment time point
+pca.fit(Xall, y)
 # Compute the eigenvector space 
 V = pca.fit_transform(X)
 # Fit a nearest neighbor classifier on the model built on the training data set
@@ -345,10 +544,8 @@ sigmasq_int_PCA = mu_int_PCA*(1-mu_int_PCA)/len(Xint)
 y_post = knn.predict(pca.transform(Xpost))
 mu_post_PCA= sum(y_post)/len(Xpost)
 sigmasq_post_PCA = mu_post_PCA*(1-mu_post_PCA)/len(Xpost)
-#%% Print the PCA estimate outputs
-print(mu_pre_PCA)
-print(mu_int_PCA)
-print(mu_post_PCA)
+
+
 #%% Project the intermediate and post treatment samples into the principal component space
 # This is mostly for visualiation purposes, but also to evaluate if the post-treatment 
 # cells are more different in some principal components than others
@@ -492,381 +689,3 @@ plt.legend(loc=2, prop={'size': 25})
 
 ax.azim = 100
 ax.elev = -50
-#%% PC2 PC3 and PC4
-fig = plt.figure(figsize=(15,15))
-ax=fig.add_subplot(111,projection='3d')
-
-PC_dfsens = PC_df[PC_df['classlabel']==0]
-PC_dfres = PC_df[PC_df['classlabel']==1]
-Xs= np.asarray(PC_dfsens[1])
-Ys=np.asarray(PC_dfsens[2])
-Zs=np.asarray(PC_dfsens[3])
-
-Xr= np.asarray(PC_dfres[1])
-Yr=np.asarray(PC_dfres[2])
-Zr=np.asarray(PC_dfres[3])
-
-
-Xint= np.asarray(PCintdf[1])
-Yint=np.asarray(PCintdf[2])
-Zint=np.asarray(PCintdf[3])
-
-Xpost= np.asarray(PCpostdf[1])
-Ypost=np.asarray(PCpostdf[2])
-Zpost=np.asarray(PCpostdf[3])
-
-res_cells = ax.scatter(Xr, Yr, Zr, c='b', marker='^', alpha = 1, label = 't=0 hr res')
-sens_cells = ax.scatter(Xs, Ys, Zs, c='r', marker='o', alpha = 0.3, label = 't= 0 hr sens')
-#int_cells = ax.scatter(Xint, Yint, Zint, c='g', marker = 'o', alpha = 0.2, label = 't=30 hr')
-post_cells = ax.scatter(Xpost, Ypost, Zpost, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
-
-ax.set_xlabel('PC2')
-ax.set_ylabel('PC3')
-ax.set_zlabel('PC4')
-plt.legend(loc=2, prop={'size': 25})
-#plt.title('Pre and post-treatment cells in PC space',fontsize= 20)
-
-#ax.legend([sens_cells, res_cells], ['t=0 hr sens', 't=0 hr res'])
-
-ax.azim = 100
-ax.elev = 50
-
-#%% PC1 PC3 and PC4
-fig = plt.figure(figsize=(15,15))
-ax=fig.add_subplot(111,projection='3d')
-
-PC_dfsens = PC_df[PC_df['classlabel']==0]
-PC_dfres = PC_df[PC_df['classlabel']==1]
-Xs= np.asarray(PC_dfsens[0])
-Ys=np.asarray(PC_dfsens[2])
-Zs=np.asarray(PC_dfsens[3])
-
-Xr= np.asarray(PC_dfres[0])
-Yr=np.asarray(PC_dfres[2])
-Zr=np.asarray(PC_dfres[3])
-
-
-Xint= np.asarray(PCintdf[0])
-Yint=np.asarray(PCintdf[2])
-Zint=np.asarray(PCintdf[3])
-
-Xpost= np.asarray(PCpostdf[0])
-Ypost=np.asarray(PCpostdf[2])
-Zpost=np.asarray(PCpostdf[3])
-
-res_cells = ax.scatter(Xr, Yr, Zr, c='b', marker='^', alpha = 1, label = 't=0 hr res')
-sens_cells = ax.scatter(Xs, Ys, Zs, c='r', marker='o', alpha = 0.3, label = 't= 0 hr sens')
-#int_cells = ax.scatter(Xint, Yint, Zint, c='g', marker = 'o', alpha = 0.2, label = 't=30 hr')
-post_cells = ax.scatter(Xpost, Ypost, Zpost, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
-
-ax.set_xlabel('PC1')
-ax.set_ylabel('PC3')
-ax.set_zlabel('PC4')
-plt.legend(loc=2, prop={'size': 25})
-#plt.title('Pre and post-treatment cells in PC space',fontsize= 20)
-
-#ax.legend([sens_cells, res_cells], ['t=0 hr sens', 't=0 hr res'])
-
-ax.azim = 100
-ax.elev = -50
-
-#%% PC1 PC2 and PC4
-fig = plt.figure(figsize=(15,15))
-ax=fig.add_subplot(111,projection='3d')
-
-PC_dfsens = PC_df[PC_df['classlabel']==0]
-PC_dfres = PC_df[PC_df['classlabel']==1]
-Xs= np.asarray(PC_dfsens[0])
-Ys=np.asarray(PC_dfsens[1])
-Zs=np.asarray(PC_dfsens[3])
-
-Xr= np.asarray(PC_dfres[0])
-Yr=np.asarray(PC_dfres[1])
-Zr=np.asarray(PC_dfres[3])
-
-
-Xint= np.asarray(PCintdf[0])
-Yint=np.asarray(PCintdf[1])
-Zint=np.asarray(PCintdf[3])
-
-Xpost= np.asarray(PCpostdf[0])
-Ypost=np.asarray(PCpostdf[1])
-Zpost=np.asarray(PCpostdf[3])
-
-res_cells = ax.scatter(Xr, Yr, Zr, c='b', marker='^', alpha = 1, label = 't=0 hr res')
-sens_cells = ax.scatter(Xs, Ys, Zs, c='r', marker='o', alpha = 0.3, label = 't= 0 hr sens')
-#int_cells = ax.scatter(Xint, Yint, Zint, c='g', marker = 'o', alpha = 0.2, label = 't=30 hr')
-post_cells = ax.scatter(Xpost, Ypost, Zpost, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
-
-ax.set_xlabel('PC1')
-ax.set_ylabel('PC2')
-ax.set_zlabel('PC4')
-plt.legend(loc=2, prop={'size': 25})
-#plt.title('Pre and post-treatment cells in PC space',fontsize= 20)
-
-#ax.legend([sens_cells, res_cells], ['t=0 hr sens', 't=0 hr res'])
-
-ax.azim = 100
-ax.elev = -50
-
-
-#%% PC1 vs PC2
-
-fig = plt.figure(figsize=(10,10))
-
-PC_dfsens = PC_df[PC_df['classlabel']==0]
-PC_dfres = PC_df[PC_df['classlabel']==1]
-Xs= np.asarray(PC_dfsens[0])
-Ys=np.asarray(PC_dfsens[1])
-
-
-Xr= np.asarray(PC_dfres[0])
-Yr=np.asarray(PC_dfres[1])
-
-
-
-Xint= np.asarray(PCintdf[0])
-Yint=np.asarray(PCintdf[1])
-
-Xpost= np.asarray(PCpostdf[0])
-Ypost=np.asarray(PCpostdf[1])
-
-
-res_cells = plt.scatter(Xr, Yr, c='b', marker='^', alpha = 1, label = 't=0 hr res')
-sens_cells = plt.scatter(Xs, Ys,  c='r', marker='o', alpha = 0.3, label = 't= 0 hr sens')
-#int_cells = plt.scatter(Xint, Yint, c='g', marker = 'o', alpha = 0.2, label = 't=30 hr')
-post_cells = plt.scatter(Xpost, Ypost, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
-
-plt.xlabel('PC1')
-plt.ylabel('PC2')
-
-plt.legend(loc=2, prop={'size': 25})
-
-#%% PC1 vs PC3
-
-fig = plt.figure(figsize=(10,10))
-
-PC_dfsens = PC_df[PC_df['classlabel']==0]
-PC_dfres = PC_df[PC_df['classlabel']==1]
-Xs= np.asarray(PC_dfsens[0])
-Ys=np.asarray(PC_dfsens[2])
-
-
-Xr= np.asarray(PC_dfres[0])
-Yr=np.asarray(PC_dfres[2])
-
-
-
-Xint= np.asarray(PCintdf[0])
-Yint=np.asarray(PCintdf[2])
-
-Xpost= np.asarray(PCpostdf[0])
-Ypost=np.asarray(PCpostdf[2])
-
-
-res_cells = plt.scatter(Xr, Yr, c='b', marker='^', alpha = 1, label = 't=0 hr res')
-sens_cells = plt.scatter(Xs, Ys,  c='r', marker='o', alpha = 0.3, label = 't= 0 hr sens')
-#int_cells = plt.scatter(Xint, Yint, c='g', marker = 'o', alpha = 0.2, label = 't=30 hr')
-post_cells = plt.scatter(Xpost, Ypost, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
-
-plt.xlabel('PC1')
-plt.ylabel('PC3')
-
-plt.legend(loc=2, prop={'size': 25})
-
-#%% PC2 vs PC3
-
-fig = plt.figure(figsize=(10,10))
-
-PC_dfsens = PC_df[PC_df['classlabel']==0]
-PC_dfres = PC_df[PC_df['classlabel']==1]
-Xs= np.asarray(PC_dfsens[1])
-Ys=np.asarray(PC_dfsens[2])
-
-
-Xr= np.asarray(PC_dfres[1])
-Yr=np.asarray(PC_dfres[2])
-
-
-
-Xint= np.asarray(PCintdf[1])
-Yint=np.asarray(PCintdf[2])
-
-Xpost= np.asarray(PCpostdf[1])
-Ypost=np.asarray(PCpostdf[2])
-
-
-res_cells = plt.scatter(Xr, Yr, c='b', marker='^', alpha = 1, label = 't=0 hr res')
-sens_cells = plt.scatter(Xs, Ys,  c='r', marker='o', alpha = 0.3, label = 't= 0 hr sens')
-#int_cells = plt.scatter(Xint, Yint, c='g', marker = 'o', alpha = 0.2, label = 't=30 hr')
-post_cells = plt.scatter(Xpost, Ypost, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
-
-plt.xlabel('PC2')
-plt.ylabel('PC3')
-
-plt.legend(loc=2, prop={'size': 25})
-#%% PC1 vs PC4
-
-fig = plt.figure(figsize=(10,10))
-
-PC_dfsens = PC_df[PC_df['classlabel']==0]
-PC_dfres = PC_df[PC_df['classlabel']==1]
-Xs= np.asarray(PC_dfsens[0])
-Ys=np.asarray(PC_dfsens[3])
-
-
-Xr= np.asarray(PC_dfres[0])
-Yr=np.asarray(PC_dfres[3])
-
-
-
-Xint= np.asarray(PCintdf[0])
-Yint=np.asarray(PCintdf[3])
-
-Xpost= np.asarray(PCpostdf[0])
-Ypost=np.asarray(PCpostdf[3])
-
-
-res_cells = plt.scatter(Xr, Yr, c='b', marker='^', alpha = 1, label = 't=0 hr res')
-sens_cells = plt.scatter(Xs, Ys,  c='r', marker='o', alpha = 0.3, label = 't= 0 hr sens')
-#int_cells = plt.scatter(Xint, Yint, c='g', marker = 'o', alpha = 0.2, label = 't=30 hr')
-post_cells = plt.scatter(Xpost, Ypost, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
-
-plt.xlabel('PC1')
-plt.ylabel('PC4')
-
-plt.legend(loc=2, prop={'size': 25})
-
-
-#%% PC2 vs PC4
-
-fig = plt.figure(figsize=(10,10))
-
-PC_dfsens = PC_df[PC_df['classlabel']==0]
-PC_dfres = PC_df[PC_df['classlabel']==1]
-Xs= np.asarray(PC_dfsens[1])
-Ys=np.asarray(PC_dfsens[3])
-
-
-Xr= np.asarray(PC_dfres[1])
-Yr=np.asarray(PC_dfres[3])
-
-
-
-Xint= np.asarray(PCintdf[1])
-Yint=np.asarray(PCintdf[3])
-
-Xpost= np.asarray(PCpostdf[1])
-Ypost=np.asarray(PCpostdf[3])
-
-
-res_cells = plt.scatter(Xr, Yr, c='b', marker='^', alpha = 1, label = 't=0 hr res')
-sens_cells = plt.scatter(Xs, Ys,  c='r', marker='o', alpha = 0.3, label = 't= 0 hr sens')
-#int_cells = plt.scatter(Xint, Yint, c='g', marker = 'o', alpha = 0.2, label = 't=30 hr')
-post_cells = plt.scatter(Xpost, Ypost, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
-
-plt.xlabel('PC2')
-plt.ylabel('PC4')
-
-plt.legend(loc=2, prop={'size': 25})
-
-#%% PC3 vs PC4
-
-fig = plt.figure(figsize=(10,10))
-
-PC_dfsens = PC_df[PC_df['classlabel']==0]
-PC_dfres = PC_df[PC_df['classlabel']==1]
-Xs= np.asarray(PC_dfsens[2])
-Ys=np.asarray(PC_dfsens[3])
-
-
-Xr= np.asarray(PC_dfres[2])
-Yr=np.asarray(PC_dfres[3])
-
-
-
-Xint= np.asarray(PCintdf[2])
-Yint=np.asarray(PCintdf[3])
-
-Xpost= np.asarray(PCpostdf[2])
-Ypost=np.asarray(PCpostdf[3])
-
-
-res_cells = plt.scatter(Xr, Yr, c='b', marker='^', alpha = 1, label = 't=0 hr res')
-sens_cells = plt.scatter(Xs, Ys,  c='r', marker='o', alpha = 0.3, label = 't= 0 hr sens')
-#int_cells = plt.scatter(Xint, Yint, c='g', marker = 'o', alpha = 0.2, label = 't=30 hr')
-post_cells = plt.scatter(Xpost, Ypost, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
-
-plt.xlabel('PC3')
-plt.ylabel('PC4')
-
-plt.legend(loc=2, prop={'size': 25})
-
-
-
-#%%
-ax1=sns.scatterplot(PC_df[1], PC_df[2], hue= PC_df['classlabel'])
-ax1.set(xlabel ='PC2', ylabel ='PC3') 
-
-ax2=sns.scatterplot(PC_df[2], PC_df[3], hue= PC_df['classlabel'])
-ax2.set(xlabel ='PC3', ylabel ='PC4') 
-
-ax3=sns.scatterplot(PC_df[0], PC_df[2], hue= PC_df['classlabel'])
-ax3.set(xlabel ='PC1', ylabel ='PC3') 
-
-ax4=sns.scatterplot(PC_df[0], PC_df[3], hue= PC_df['classlabel'])
-ax4.set(xlabel ='PC1', ylabel ='PC4')
-
-ax5=sns.scatterplot(PC_df[1], PC_df[3], hue= PC_df['classlabel'])
-ax5.set(xlabel ='PC2', ylabel ='PC4')
-
-fig = plt.figure(figsize=(15,15))
-ax=fig.add_subplot(111,projection='3d')
-
-PC_dfsens = PC_df[PC_df['survivor']=='sens']
-PC_dfres = PC_df[PC_df['survivor']=='res']
-Xs= np.asarray(PC_dfsens[0])
-Ys=np.asarray(PC_dfsens[2])
-Zs=np.asarray(PC_dfsens[3])
-
-Xr= np.asarray(PC_dfres[0])
-Yr=np.asarray(PC_dfres[1])
-Zr=np.asarray(PC_dfres[2])
-
-ax.scatter(Xr, Yr, Zr, c='b', marker='^', alpha = 1)
-ax.scatter(Xs, Ys, Zs, c='r', marker='o', alpha = 0.3)
-
-
-ax.set_xlabel('PC1')
-ax.set_ylabel('PC2')
-ax.set_zlabel('PC3')
-
-ax.azim = 100
-ax.elev = -50
-
-#%% Build SVM Model and apply to the subsequent time points
-
-clf.fit(X, y)
-y_pre_SVM= clf.predict(X)
-mu_pre_SVM= sum(y_pre_SVM)/len(X)
-
-y_int_SVM = clf.predict(Xint)
-mu_int_SVM = sum(y_int_SVM)/len(Xint)
-
-y_post_SVM = clf.predict(Xpost)
-mu_post_SVM = sum(y_post_SVM)/len(Xpost)
-
-print(mu_pre_SVM)
-print(mu_int_SVM)
-print(mu_post_SVM)
-
-
-    
-
-    
-    
-    
-    
-    
-    
-    

@@ -62,13 +62,6 @@ adata.obs.head()
 #Rel-1
 #Rel-2
 # We will change these to time points
-#%% Assign survivor category in adata.obs
-longTreatLins = adata.obs.loc[(adata.obs['sample'].isin(['Rel-1','Rel-2']))&(adata.obs.lineage!='nan'),'lineage'].unique().tolist()
-
-adata.obs.loc[adata.obs.lineage.isin(longTreatLins)==False,'survivor'] = 'sens'
-adata.obs.loc[adata.obs.lineage.isin(longTreatLins)==True,'survivor'] = 'res'
-sc.pl.umap(adata,color=['survivor'],wspace=0.3,
-           save='alltps_res_sens.png')
 # %%try to rename the samples by time point
 samps= adata.obs['sample'].unique()
 
@@ -82,28 +75,75 @@ adata.obs.loc[adata.obs['sample']==samps[3], 'timepoint']='t=1344hr'
 print(adata.obs['timepoint'].unique())
 
 
-sc.pl.umap(adata,color = ['timepoint'], palette=['#2c9e2f','#046df7', '#d604f7', '#c91212'], wspace=0.3,
-           save = 'TPs_umap.png')
+
 #%% Separately make dataframes for the pre-treatment, intermediate, and post treatment samples
 # t=0 hr (pre-treatment), 3182 pre treatment cells
 # We want to keep the info about the lineage so we can potentially
 # use it to make evenly divided testing and training data sets
 adata_pre = adata[adata.obs['timepoint']=='t=0hr', :]
-dfpre = pd.concat([adata_pre.obs['survivor'], adata_pre.obs['lineage'],
+dfpre = pd.concat([adata_pre.obs['lineage'], adata_pre.obs['leiden'],
                pd.DataFrame(adata_pre.raw.X,index=adata_pre.obs.index,
-                            columns=adata_pre.var_names),],axis=1) 
+                            columns=adata_pre.var_names),], axis=1) 
 # t = 30 hr (intermediate timepoint) 5169 int treatment cells
 adata_int = adata[adata.obs['timepoint']=='t=30hr', :]
-dfint = pd.concat([adata_int.obs['lineage'],
+dfint = pd.concat([adata_int.obs['lineage'], adata_int.obs['leiden'],
                    pd.DataFrame(adata_int.raw.X, index=adata_int.obs.index, 
                                 columns = adata_int.var_names),], axis=1)
 
 # t=1344 hr (~roughly 8 weeks), 10332 post treatment cells
 adata_post = adata[adata.obs['timepoint']=='t=1344hr', :]
-dfpost = pd.concat([adata_post.obs['lineage'],
+dfpost = pd.concat([adata_post.obs['lineage'], adata_post.obs['leiden'],
                     pd.DataFrame(adata_post.raw.X, index=adata_post.obs.index, 
                                  columns = adata_post.var_names),],axis =1)
+#%% Try to add a .obs column that records lineage abundance from the different samples
+linAbundpre= adata_pre.obs['lineage'].value_counts()
+linAbundint = adata_int.obs['lineage'].value_counts()
+linAbundpost = adata_post.obs['lineage'].value_counts()
 
+# Start by adding the linabundpre and lin abund post to the pre-treatment data frame
+df1 = pd.DataFrame(linAbundpre)
+df1['linabundpre']= df1.lineage
+df1=df1.drop(['lineage'], axis=1)
+df1['lineage'] = df1.index
+df1=df1.drop(index='nan')
+
+
+df2 = pd.DataFrame(linAbundpost)
+df2['linabundpost']= df2.lineage
+df2=df2.drop(['lineage'], axis=1)
+df2['lineage'] = df2.index
+df2=df2.drop(index='nan')
+#%% Merge the linage abundance data frames from the pre and post treatment samples into dfpre
+dfpre= pd.DataFrame.merge(df1, dfpre, left_on=['lineage'], 
+              right_on=['lineage'], how='right')
+dfpre = pd.DataFrame.merge(df2, dfpre, left_on=['lineage'],
+              right_on=['lineage'], how='right') 
+dfpre['linabundpost'] = dfpre['linabundpost'].fillna(0)
+dfpre['linabundpre']= dfpre['linabundpre'].fillna(0)
+#%% Make a column that is the logfoldchange from post to pre
+import math
+dfpre['foldchange'] =  (dfpre['linabundpost']-dfpre['linabundpre'])/dfpre['linabundpre']
+print(dfpre['foldchange'].unique())
+#%%
+dfpre['logfoldchange'] = np.log(dfpre['foldchange'])
+dfpre['logfoldchange']= dfpre['logfoldchange'].fillna(0)
+print(dfpre['logfoldchange'])
+print(dfpre['foldchange'].unique())
+print(dfpre['logfoldchange'].unique())
+#%%
+
+plt.hist(dfpre['logfoldchange'], range = [3, 7], bins = 100)
+plt.xlabel('log(foldchange) of lineage abundance')
+plt.ylabel('number of cells')
+#%%
+plt.hist(dfpre['foldchange'], range = [0, 500], bins = 100)
+plt.xlabel('foldchange of lineage abundance')
+plt.ylabel('number of cells')
+
+#%% Make the survivor column, but don't label it yet. 
+#dfpre['survivor'] =np.where(dfpre['linabundpost'] >1000, 'res','sens')
+#%% Set a log fold change cutoff
+dfpre['survivor'] = np.where(dfpre['foldchange']>0, 'res', 'sens')
 #%% Try making a UMAP of the first sample only
 
 sc.pl.umap(adata_pre,color=['survivor'],wspace=0.3,
@@ -113,11 +153,12 @@ sc.pl.umap(adata_post,color=['lineage'],wspace=0.3,
 
 #%% Use sklearn to do principle component analysis on the  entire pre-treatment sample
 #X = dfpre.loc[:, dfpre.columns !='survivor', dfpre.columns !='lineage']
-X = dfpre.drop(columns= ['survivor', 'lineage'])
+X = dfpre.drop(columns= ['survivor', 'lineage', 'linabundpre', 'linabundpost', 'logfoldchange', 'foldchange'])
 labels= dfpre.loc[:,['survivor']]
 print(labels)
 #%%
 y= pd.factorize(dfpre['survivor'])[0] 
+y ^= 1 # We want 0s = sens and 1s = res
 linlabels = dfpre.loc[:,['lineage']]
 ylins = pd.factorize(dfpre['lineage'])
 
@@ -240,7 +281,7 @@ meanAUCtest = find_mean_AUC(folds_dict, n_neighbors, n_components)
 print(meanAUCtest)
 #%% Run loop to vary the number of neighbors 
 
-n_neighborsvec = np.linspace(1,21,num = 11)
+n_neighborsvec = np.linspace(1,101,num = 11)
 meanAUC_neighbs = np.zeros((len(n_neighborsvec),1))
 
 for i in range(len(n_neighborsvec)):
@@ -254,8 +295,8 @@ plt.title('mean AUC as a function of knn')
 plt.show()
 
 #%% Run loop to vary the number of components
-
-n_compsvec = [2, 5, 10, 20, 50, 100, 250, 500]
+n_neighbors = 100
+n_compsvec = [2, 3, 5, 10, 20, 50, 100, 250, 500]
 meanAUC_comps = np.zeros((len(n_compsvec),1))
 for i in range(len(n_compsvec)):
     meanAUC_comps[i]=find_mean_AUC(folds_dict, n_neighbors, n_compsvec[i])
@@ -268,8 +309,8 @@ plt.title('mean AUC as a function of number of PCs')
 plt.show()
 #%% Set the number of neighbors and number of components to the two optimal values
 # and generate the ROC curve
-n_neigbors = 15
-n_components = 100
+n_neigbors = 100
+n_components = 50
 
 X_train = folds_dict['trainmat'][1]
 y_train = folds_dict['trainlabel'][1]
