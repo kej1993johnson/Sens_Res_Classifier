@@ -1,12 +1,17 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-Created on Thu Jun 27 15:11:10 2019
+Created on Wed Jul  3 12:22:02 2019
 
 @author: kj22643
 """
-
 %reset
+
+# This script performs k-fold cross validation on the cells labeled resistant
+# and sensitive by lineage abundance changes.
+
+# This also used to optimize the number of principal components and the number
+# of nearest neighbors for the classifier when it's applied to the remainder of 
+# the pre=treatment, intermediate, and post-treatment samples
+
 
 import numpy as np
 import pandas as pd
@@ -19,6 +24,7 @@ import matplotlib as plt
 import random
 from collections import OrderedDict
 import copy
+import math
 import matplotlib.pyplot as plt
 from pandas import DataFrame, Series
 import plotnine as gg
@@ -35,6 +41,7 @@ from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 from sklearn.decomposition import PCA
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.cluster import KMeans
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn import svm
@@ -54,7 +61,7 @@ sc.set_figure_params(dpi_save=300)
 sc.settings.verbosity = 3
 
 #%% Load in pre and post treatment 231 data
-adata = sc.read('daylin_anndata.h5ad')
+adata = sc.read('post-cell-cycle-regress.h5ad')
 adata.obs.head()
 # current samples:
 #BgL1K
@@ -62,7 +69,29 @@ adata.obs.head()
 #Rel-1
 #Rel-2
 # We will change these to time points
-# %%try to rename the samples by time point
+# Count the number of unique lineages in all the cells
+uniquelins = adata.obs['lineage'].unique()
+nunique = len(uniquelins)
+
+#%% Identify lineages that have been recalled from the pre-treatment sample
+# Make a column labeled recalled lin that can be use to identify the specific lineages of interest
+
+# These correspond to AA161 and AA170
+# AA170 is the highly proliferative lineage that ultimately decreases in lineage abundance
+# AA161 is a lowly abundant in the pre-treatment but is one of the ones that comes
+# to  be highly abundance in both post treatment samples
+
+reslin = ['GTACATTTTCATACCTCTCG']
+senslin = ['GTGTGTTGTTTTTGTACGGC']
+
+
+adata.obs.loc[adata.obs.lineage.isin(reslin)==True,'recalled_lin'] = 'res'
+adata.obs.loc[adata.obs.lineage.isin(reslin)==False,'recalled_lin'] = 'na'
+adata.obs.loc[adata.obs.lineage.isin(senslin)==True,'recalled_lin'] = 'sens'
+
+print(adata.obs['recalled_lin'])
+
+#%% Add a column to rename the samples by time point
 samps= adata.obs['sample'].unique()
 
 timepoint = np.array(['t=0hr', 't=30hr', 't=1344hr'])
@@ -80,21 +109,31 @@ print(adata.obs['timepoint'].unique())
 # t=0 hr (pre-treatment), 3182 pre treatment cells
 # We want to keep the info about the lineage so we can potentially
 # use it to make evenly divided testing and training data sets
+dfall = pd.concat([adata.obs['lineage'],adata.obs['timepoint'], 
+               pd.DataFrame(adata.raw.X,index=adata.obs.index,
+                            columns=adata.var_names),], axis=1) 
+ncells = len(dfall)
+print(ncells)
 adata_pre = adata[adata.obs['timepoint']=='t=0hr', :]
-dfpre = pd.concat([adata_pre.obs['lineage'], adata_pre.obs['leiden'],
+dfpre = pd.concat([adata_pre.obs['lineage'], adata_pre.obs['recalled_lin'],
                pd.DataFrame(adata_pre.raw.X,index=adata_pre.obs.index,
                             columns=adata_pre.var_names),], axis=1) 
+npre = len(dfpre)
+print(npre)
 # t = 30 hr (intermediate timepoint) 5169 int treatment cells
 adata_int = adata[adata.obs['timepoint']=='t=30hr', :]
-dfint = pd.concat([adata_int.obs['lineage'], adata_int.obs['leiden'],
+dfint = pd.concat([adata_int.obs['lineage'], adata_int.obs['recalled_lin'],
                    pd.DataFrame(adata_int.raw.X, index=adata_int.obs.index, 
                                 columns = adata_int.var_names),], axis=1)
-
+nint = len(dfint)
+print(nint)
 # t=1344 hr (~roughly 8 weeks), 10332 post treatment cells
 adata_post = adata[adata.obs['timepoint']=='t=1344hr', :]
-dfpost = pd.concat([adata_post.obs['lineage'], adata_post.obs['leiden'],
+dfpost = pd.concat([adata_post.obs['lineage'], adata_post.obs['recalled_lin'],
                     pd.DataFrame(adata_post.raw.X, index=adata_post.obs.index, 
                                  columns = adata_post.var_names),],axis =1)
+npost = len(dfpost)
+print(npost)
 #%% Try to add a .obs column that records lineage abundance from the different samples
 linAbundpre= adata_pre.obs['lineage'].value_counts()
 linAbundint = adata_int.obs['lineage'].value_counts()
@@ -121,65 +160,76 @@ dfpre = pd.DataFrame.merge(df2, dfpre, left_on=['lineage'],
 dfpre['linabundpost'] = dfpre['linabundpost'].fillna(0)
 dfpre['linabundpre']= dfpre['linabundpre'].fillna(0)
 #%% Make a column that is the logfoldchange from post to pre
-import math
-dfpre['foldchange'] =  (dfpre['linabundpost']-dfpre['linabundpre'])/dfpre['linabundpre']
+dfpre['foldchange'] =  (dfpre['linabundpost']-dfpre['linabundpre'])
+#dfpre['foldchange'] =  ((dfpre['linabundpost']/npost)-(dfpre['linabundpre']/npre))/(dfpre['linabundpre']/npre)
 print(dfpre['foldchange'].unique())
-#%%
+foldchangevec = dfpre['foldchange']
+#%% Look at fold change and log fold change for each cell and its correpsonding lineage
 dfpre['logfoldchange'] = np.log(dfpre['foldchange'])
 dfpre['logfoldchange']= dfpre['logfoldchange'].fillna(0)
-print(dfpre['logfoldchange'])
-print(dfpre['foldchange'].unique())
-print(dfpre['logfoldchange'].unique())
-#%%
 
+
+print(dfpre['logfoldchange'].unique())
+
+# Figures of logfold change and fold change
+plt.figure()
 plt.hist(dfpre['logfoldchange'], range = [3, 7], bins = 100)
 plt.xlabel('log(foldchange) of lineage abundance')
 plt.ylabel('number of cells')
-#%%
-plt.hist(dfpre['foldchange'], range = [0, 500], bins = 100)
+
+plt.figure()
+plt.hist(dfpre['foldchange'],range = [0, 500], bins = 100)
 plt.xlabel('foldchange of lineage abundance')
 plt.ylabel('number of cells')
 
+
+
 #%% Make the survivor column, but don't label it yet. 
-#dfpre['survivor'] =np.where(dfpre['linabundpost'] >1000, 'res','sens')
-#%% Set a log fold change cutoff
-dfpre['survivor'] = np.where(dfpre['foldchange']>0, 'res', 'sens')
-#%% Try making a UMAP of the first sample only
+#dfpre['survivor'] =np.where(dfpre['linabundpost'] >1000, 'res','sens'
+# Want to call cells that have an increase in lineage abundance resistant
+dfpre.loc[dfpre.foldchange>0, 'survivor'] = 'res'
 
-sc.pl.umap(adata_pre,color=['survivor'],wspace=0.3,
-           save='pre_treat_res_sens.png')
-sc.pl.umap(adata_post,color=['lineage'],wspace=0.3,
-           save='post_lineages.png')
+dfpre.loc[dfpre.foldchange<-200, 'survivor']= 'sens'
+survivorvec = dfpre['survivor']
 
-#%% Use sklearn to do principle component analysis on the  entire pre-treatment sample
-#X = dfpre.loc[:, dfpre.columns !='survivor', dfpre.columns !='lineage']
-X = dfpre.drop(columns= ['survivor', 'lineage', 'linabundpre', 'linabundpost', 'logfoldchange', 'foldchange'])
-labels= dfpre.loc[:,['survivor']]
-print(labels)
-#%%
-y= pd.factorize(dfpre['survivor'])[0] 
-y ^= 1 # We want 0s = sens and 1s = res
-linlabels = dfpre.loc[:,['lineage']]
-ylins = pd.factorize(dfpre['lineage'])
 
-prevpop = sum(y)/len(y)
+# Want to call cells that have an signficant in lineage abundance resistant
+
+# Make a dataframe that only contains cells who are given a sens or resistant label
+
+dfsr = dfpre[(dfpre['survivor']=='sens') | (dfpre['survivor'] == 'res')]
+nclass = len(dfsr)
+print(nclass)
+y= pd.factorize(dfsr['survivor'])[0] 
+y ^= 1
+mu_sr = sum(y)/len(y)
+print(mu_sr)
+Xsr = dfsr.drop(columns= [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'foldchange', 'logfoldchange', 'survivor'])
+ntrain = len(dfsr)
+
+
+y= pd.factorize(dfsr['survivor'])[0] 
+y ^= 1
+
+
+mu_pre = sum(y)/len(y)
+# X is your cell gene matrix, y is your class labels
 #%% Run PCA on entire pre-treatment data set
+X = Xsr
 full_dict = {'fullmat':{}, 'prev':{}, 'labels':{}, 'V':{}, 'lambdas':{}, 'varPC':{}}
 n_neighbors = 10
-n_components = 50
+n_components = 500
 random_state = 0
 
-pca=PCA(copy=True, iterated_power='auto', n_components=50, random_state=0,
+pca=PCA(copy=True, iterated_power='auto', n_components=500, random_state=0,
   svd_solver='auto', tol=0.0, whiten=False)
 V = pca.fit(X)  
 varPC= (pca.explained_variance_ratio_)  
 
 lambdas = pca.singular_values_ 
 full_dict['full_mat'] = X
-full_dict['prev']=prevpop
 full_dict['labels']=y
 full_dict['V']= V
-full_dict['lambdas']= lambdas
 full_dict['varPC']= varPC
 
 
@@ -295,7 +345,7 @@ plt.title('mean AUC as a function of knn')
 plt.show()
 
 #%% Run loop to vary the number of components
-n_neighbors = 100
+n_neighbors = 90
 n_compsvec = [2, 3, 5, 10, 20, 50, 100, 250, 500]
 meanAUC_comps = np.zeros((len(n_compsvec),1))
 for i in range(len(n_compsvec)):
@@ -310,7 +360,7 @@ plt.show()
 #%% Set the number of neighbors and number of components to the two optimal values
 # and generate the ROC curve
 n_neigbors = 100
-n_components = 50
+n_components = 500
 
 X_train = folds_dict['trainmat'][1]
 y_train = folds_dict['trainlabel'][1]
@@ -337,7 +387,7 @@ plt.xlim([0.0, 1.0])
 plt.ylim([0.0, 1.05])
 plt.xlabel('False Positive Rate')
 plt.ylabel('True Positive Rate')
-plt.title('ROC Curve k=15, nPCs = 100')
+plt.title('ROC Curve k=90, nPCs = 500')
 plt.legend(loc="lower right")
 plt.show()
 

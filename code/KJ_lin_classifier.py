@@ -11,7 +11,7 @@
 # of both all of the cells and just the cells used for classifying.
 
 
-
+# Need to figure out what is different about this version compared to when we split the data set
 
 %reset
 
@@ -68,8 +68,8 @@ adata.obs.head()
 # current samples:
 #BgL1K
 #30hr
-#Rel-1
-#Rel-2
+#Rel-1 AA107 7 weeks
+#Rel-2 AA113  10 weeks - 1 day
 # We will change these to time points
 # Count the number of unique lineages in all the cells
 uniquelins = adata.obs['lineage'].unique()
@@ -97,16 +97,21 @@ print(adata.obs['recalled_lin'])
 #%% Add a column to rename the samples by time point
 samps= adata.obs['sample'].unique()
 
-timepoint = np.array(['t=0hr', 't=30hr', 't=1344hr'])
+timepoint = np.array(['t=0hr', 't=30hr', 't=1176hr', 't=1656hr'])
 
 adata.obs.loc[adata.obs['sample']==samps[0], 'timepoint']='t=0hr'
 adata.obs.loc[adata.obs['sample']==samps[1], 'timepoint']='t=30hr'
-adata.obs.loc[adata.obs['sample']==samps[2], 'timepoint']='t=1344hr'
-adata.obs.loc[adata.obs['sample']==samps[3], 'timepoint']='t=1344hr'
+adata.obs.loc[adata.obs['sample']==samps[2], 'timepoint']='t=1176hr'
+adata.obs.loc[adata.obs['sample']==samps[3], 'timepoint']='t=1656hr'
 
 print(adata.obs['timepoint'].unique())
 
+TP = np.array(['pre', 'int', 'post'])
 
+adata.obs.loc[adata.obs['sample']==samps[0], 'TP']='pre'
+adata.obs.loc[adata.obs['sample']==samps[1], 'TP']='int'
+adata.obs.loc[adata.obs['sample']==samps[2], 'TP']='post'
+adata.obs.loc[adata.obs['sample']==samps[3], 'TP']='post'
 
 #%% Separately make dataframes for the pre-treatment, intermediate, and post treatment samples
 # t=0 hr (pre-treatment), 3182 pre treatment cells
@@ -130,17 +135,33 @@ dfint = pd.concat([adata_int.obs['lineage'], adata_int.obs['recalled_lin'],
                                 columns = adata_int.var_names),], axis=1)
 nint = len(dfint)
 print(nint)
-# t=1344 hr (~roughly 8 weeks), 10332 post treatment cells
-adata_post = adata[adata.obs['timepoint']=='t=1344hr', :]
-dfpost = pd.concat([adata_post.obs['lineage'], adata_post.obs['recalled_lin'],
-                    pd.DataFrame(adata_post.raw.X, index=adata_post.obs.index, 
-                                 columns = adata_post.var_names),],axis =1)
-npost = len(dfpost)
-print(npost)
+# t=1176 hr (~roughly 7 weeks), 10332 post treatment cells
+adata_post1 = adata[adata.obs['timepoint']=='t=1176hr', :]
+dfpost1 = pd.concat([adata_post1.obs['lineage'], adata_post1.obs['recalled_lin'],
+                    pd.DataFrame(adata_post1.raw.X, index=adata_post1.obs.index, 
+                                 columns = adata_post1.var_names),],axis =1)
+npost1 = len(dfpost1)
+print(npost1)
+adata_post2 = adata[adata.obs['timepoint']=='t=1656hr', :]
+dfpost2= pd.concat([adata_post2.obs['lineage'], adata_post2.obs['recalled_lin'],
+                    pd.DataFrame(adata_post2.raw.X, index=adata_post2.obs.index, 
+                                 columns = adata_post2.var_names),],axis =1)
+npost2 = len(dfpost2)
+print(npost2)
+
+adata_POST= adata[adata.obs['TP']=='post', :]
+dfPOST= pd.concat([adata_POST.obs['lineage'], adata_POST.obs['recalled_lin'],
+                    pd.DataFrame(adata_POST.raw.X, index=adata_POST.obs.index, 
+                                 columns = adata_POST.var_names),],axis =1)
+nPOST= len(dfPOST)
+print(nPOST)
 #%% Try to add a .obs column that records lineage abundance from the different samples
+# The result of this is that index becomes the lineage and the lineage column becomes the value count
+
 linAbundpre= adata_pre.obs['lineage'].value_counts()
 linAbundint = adata_int.obs['lineage'].value_counts()
-linAbundpost = adata_post.obs['lineage'].value_counts()
+# Want the linabundpost from the combined post-treatment samples
+linAbundpost = adata_POST.obs['lineage'].value_counts()
 
 # Start by adding the linabundpre and lin abund post to the pre-treatment data frame
 df1 = pd.DataFrame(linAbundpre)
@@ -155,7 +176,7 @@ df2['linabundpost']= df2.lineage
 df2=df2.drop(['lineage'], axis=1)
 df2['lineage'] = df2.index
 df2=df2.drop(index='nan')
-#%% Merge the linage abundance data frames from the pre and post treatment samples into dfpre
+#  Merge the linage abundance data frames from the pre and post treatment samples into dfpre
 dfpre= pd.DataFrame.merge(df1, dfpre, left_on=['lineage'], 
               right_on=['lineage'], how='right')
 dfpre = pd.DataFrame.merge(df2, dfpre, left_on=['lineage'],
@@ -165,6 +186,7 @@ dfpre['linabundpre']= dfpre['linabundpre'].fillna(0)
 #%% Make a column that is the logfoldchange from post to pre
 
 dfpre['foldchange'] =  (dfpre['linabundpost']-dfpre['linabundpre'])
+#dfpre['foldchange'] =  ((dfpre['linabundpost']/npost)-(dfpre['linabundpre']/npre))/(dfpre['linabundpre']/npre)
 print(dfpre['foldchange'].unique())
 foldchangevec = dfpre['foldchange']
 #%% Look at fold change and log fold change for each cell and its correpsonding lineage
@@ -191,6 +213,7 @@ plt.ylabel('number of cells')
 dfpre.loc[dfpre.foldchange>0, 'survivor'] = 'res'
 
 dfpre.loc[dfpre.foldchange<-200, 'survivor']= 'sens'
+#dfpre.loc[dfpre.foldchange<-0.7, 'survivor']= 'sens'
 survivorvec = dfpre['survivor']
 
 
@@ -208,7 +231,7 @@ print(mu_sr)
 Xsr = dfsr.drop(columns= [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'foldchange', 'logfoldchange', 'survivor'])
 
 dfpremin = dfpre[(dfpre['survivor']!='sens') & (dfpre['survivor'] != 'res')]
-Xpremin = dfpremin.drop(columns = [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'foldchange', 'logfoldchange', 'survivor'])
+Xpremin = dfpremin.drop(columns = [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'foldchange', 'logfoldchange', 'survivor',])
 npremin = len(dfpremin)
 print(npremin)
 #%% Make your gene cell matrices, for all time points and as isolated time points
@@ -219,11 +242,11 @@ Xall = dfall.drop(columns = ['lineage', 'timepoint'])
 
 npre = len(Xpre)
 print(npre)
-
+# Make your individual time point gene-cell matrices...
 Xint = dfint.drop(columns= ['lineage', 'recalled_lin'])
-Xpost = dfpost.drop(columns =['lineage', 'recalled_lin'])
-nint = len(Xint)
-npost = len(Xpost)
+Xpost1 = dfpost1.drop(columns =['lineage', 'recalled_lin'])
+Xpost2 = dfpost2.drop(columns =['lineage', 'recalled_lin'])
+
 
 
 # X is your cell gene matrix, y is your class labels
@@ -232,8 +255,8 @@ npost = len(Xpost)
 # %%Assign the optimal parameters (foudn from KJ_classify_sklearn.py) for building your prediction model 
 # p(x|Sj) where Sj is your training set and x is any new cell (in your test set or in future cells)
 # Will want to redo these optimized hyperparameters with the new way of classifying cells as sensitive or resistant by cluster
-n_neighbors = 15
-
+n_neighbors = 1
+n_components = 100
 
 knn = KNeighborsClassifier(n_neighbors=n_neighbors)
 
@@ -251,12 +274,21 @@ pca = PCA(n_components=0.90, svd_solver='full', random_state = 0)
 pca.fit(Xsr, y)
 # Compute the eigenvector space 
 # These should all be ncells x ncomponents matrices
+
+# the components is a n_components x n-total genes matrix that gives the weight of 
+# each gene that goes into making the principal component.
+# We can use this later to identify the directions of genes
+# might be worth making into a dataframe...
+components = pca.components_
+compdf = pd.DataFrame(components, columns = adata_post1.var_names)
+# We cann use the compdf to make the arrow plot of the gene weights in PC space 
 V = pca.fit_transform(Xsr)
 PCsr = pca.transform(Xsr)
 PCsall = pca.transform(Xall)
 PCspremin=pca.transform(Xpremin)
 PCsint = pca.transform(Xint)
-PCspost = pca.transform(Xpost)
+PCspost1 = pca.transform(Xpost1)
+PCspost2 = pca.transform(Xpost2)
 #%% Look at explained variance
 var_in_PCs= pca.explained_variance_ratio_
 cdf_varPCs = var_in_PCs.cumsum()
@@ -265,29 +297,60 @@ print(cdf_varPCs)
 #%% Fit a nearest neighbor classifier on the model built on the training data set
 knn.fit(pca.transform(Xsr), y)
   
-
-# Apply the pca and knn classifier to the pre, int, and post treatment samples. 
+thres_prob = 0.17
+# Apply the pca and knn classifier to the pre, int, and post1&2 treatment samples. 
 y_premin = knn.predict(pca.transform(Xpremin))
 pre_prob= knn.predict_proba(pca.transform(Xpremin))
-B = pre_prob[:,1]>0
+B = pre_prob[:,1]>thres_prob
+mu_pre = (sum(pre_prob[:,1]) + sum(y))/npre
 y_pre = B*1
 mu_pre_PCA = (sum(y_pre)+sum(y))/(len(Xpremin) + len(Xsr))
-print(mu_pre_PCA)
+sigmasq_pre_PCA = mu_pre_PCA*(1-mu_pre_PCA)/(len(Xsr)+len(Xpremin))
+sigmasq_pre = (mu_pre*(1-mu_pre))/(npre)
+mu_pre_k = (sum(y_premin)+sum(y))/npre
+print(mu_pre)
+print(mu_pre_k)
+print(mu_pre)
+print(sigmasq_pre)
 
 y_int = knn.predict(pca.transform(Xint))
 int_prob= knn.predict_proba(pca.transform(Xint))
-C = int_prob[:,1]>0
+mu_int = (sum(int_prob[:,1])/nint)
+C = int_prob[:,1]>thres_prob
 y_intpr = C*1
 mu_int_PCA = sum(y_intpr)/(len(y_intpr))
+sigmasq_int_PCA = mu_int_PCA*(1-mu_int_PCA)/(len(Xint))
+mu_int_k = (sum(y_int))/nint
+print(mu_int)
+print(mu_int_k)
 print(mu_int_PCA)
+print(sigmasq_int_PCA)
 
+y_post1= knn.predict(pca.transform(Xpost1))
+post_prob1= knn.predict_proba(pca.transform(Xpost1))
+mu_post1 = sum(post_prob1[:,1])/npost1
+D= post_prob1[:,1]>thres_prob
+y_postpr1 = D*1
+mu_post1_PCA = sum(y_postpr1)/(len(y_postpr1))
+sigmasq_post1_PCA = mu_post1_PCA*(1-mu_post1_PCA)/len(Xpost1)
+mu_post1_k = sum(y_post1)/npost1
+print(mu_post1)
+print(mu_post1_k)
+print(mu_post1_PCA)
+print(sigmasq_post1_PCA)
 
-y_post = knn.predict(pca.transform(Xpost))
-post_prob= knn.predict_proba(pca.transform(Xpost))
-D= post_prob[:,1]>0
-y_postpr = D*1
-mu_post_PCA = sum(y_postpr)/(len(y_postpr))
-print(mu_post_PCA)
+y_post2 = knn.predict(pca.transform(Xpost2))
+post_prob2= knn.predict_proba(pca.transform(Xpost2))
+mu_post2 = sum(post_prob2[:,1])/npost2
+E= post_prob2[:,1]>thres_prob
+y_postpr2 = E*1
+mu_post2_PCA = sum(y_postpr2)/(len(y_postpr2))
+sigmasq_post2_PCA = mu_post2_PCA*(1-mu_post2_PCA)/len(Xpost2)
+mu_post2_k = sum(y_post2)/npost2
+print(mu_post2)
+print(mu_post2_k)
+print(mu_post2_PCA)
+print(sigmasq_post2_PCA)
 
 
 
@@ -318,15 +381,21 @@ PCintdf['time'] = 30
 PCintdf['recalled_lin'] = 'nan'
 
 
-# t = 1344 hr
-PCpostdf = pd.DataFrame(PCspost)
-PCpostdf['classlabel'] = y_postpr
-PCpostdf.reset_index(drop=True, inplace=True)
+# t = 1176 hr
+PCpost1df = pd.DataFrame(PCspost1)
+PCpost1df['classlabel'] = y_postpr1
+PCpost1df.reset_index(drop=True, inplace=True)
 #PCpostdf['kclust'] = kclustpost
-PCpostdf['time'] = 1344
-PCpostdf['recalled_lin'] = 'nan'
+PCpost1df['time'] = 1176
+PCpost1df['recalled_lin'] = 'nan'
 
-
+# t= 1656hr
+PCpost2df = pd.DataFrame(PCspost2)
+PCpost2df['classlabel'] = y_postpr2
+PCpost2df.reset_index(drop=True, inplace=True)
+#PCpostdf['kclust'] = kclustpost
+PCpost2df['time'] = 1176
+PCpost2df['recalled_lin'] = 'nan'
 
 #%% PC1 PC2 and PC3
 
@@ -341,8 +410,10 @@ PCpmdfs = PCpmdf[PCpmdf['classlabel']==0]
 PCpmdfr = PCpmdf[PCpmdf['classlabel']==1]
 PCintdfs = PCintdf[PCintdf['classlabel']==0]
 PCintdfr = PCintdf[PCintdf['classlabel'] == 1]
-PCpostdfs = PCpostdf[PCpostdf['classlabel']==0]
-PCpostdfr = PCpostdf[PCpostdf['classlabel'] == 1]
+PCpost1dfs = PCpost1df[PCpost1df['classlabel']==0]
+PCpost1dfr = PCpost1df[PCpost1df['classlabel'] == 1]
+PCpost2dfs = PCpost2df[PCpost2df['classlabel']==0]
+PCpost2dfr = PCpost2df[PCpost2df['classlabel'] == 1]
 #%% WHY DOES RUNNING THIS CHANGE MY PC DATAFRAMES????
 # Cells used for classifying
 xsrs= np.asarray(PCsrdfs[0])
@@ -388,17 +459,29 @@ xir= np.asarray(PCintdfr[0])
 yir=np.asarray(PCintdfr[1])
 zir=np.asarray(PCintdfr[2])
 
-# t=1344 hr cells
-xpo= np.asarray(PCpostdf[0])
-ypo=np.asarray(PCpostdf[1])
-zpo=np.asarray(PCpostdf[2])
+# t=1176 hr cells
+xpo1= np.asarray(PCpost1df[0])
+ypo1=np.asarray(PCpost1df[1])
+zpo1=np.asarray(PCpost1df[2])
 # sens and res labels
-xpos= np.asarray(PCpostdfs[0])
-ypos=np.asarray(PCpostdfs[1])
-zpos=np.asarray(PCpostdfs[2])
-xpor= np.asarray(PCpostdfr[0])
-ypor=np.asarray(PCpostdfr[1])
-zpor=np.asarray(PCpostdfr[2])
+xpos1= np.asarray(PCpost1dfs[0])
+ypos1=np.asarray(PCpost1dfs[1])
+zpos1=np.asarray(PCpost1dfs[2])
+xpor1= np.asarray(PCpost1dfr[0])
+ypor1=np.asarray(PCpost1dfr[1])
+zpor1=np.asarray(PCpost1dfr[2])
+
+# t=1656 hr cells
+xpo2= np.asarray(PCpost2df[0])
+ypo2=np.asarray(PCpost2df[1])
+zpo2=np.asarray(PCpost2df[2])
+# sens and res labels
+xpos2= np.asarray(PCpost2dfs[0])
+ypos2=np.asarray(PCpost2dfs[1])
+zpos2=np.asarray(PCpost2dfs[2])
+xpor2= np.asarray(PCpost2dfr[0])
+ypor2=np.asarray(PCpost2dfr[1])
+zpor2=np.asarray(PCpost2dfr[2])
 #%%
 fig = plt.figure(figsize=(15,15))
 ax=fig.add_subplot(111,projection='3d')
@@ -421,9 +504,12 @@ srr = ax.scatter(xsrr, ysrr, zsrr, c='r', marker='^', alpha = 1, label = 't=0 hr
 #intr = ax.scatter(xir, yir, zir, c='pink', marker = '+', alpha = 0.5, label = 't=30 hr est resistant')
 
 #post_cells = ax.scatter(xpo, ypo, zpo, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
-pos = ax.scatter(xpos, ypos, zpos, c='olivedrab', marker = '+', alpha = 0.5, label = 't=1344hr est sensitive')
-por = ax.scatter(xpor, ypor, zpor, c='pink', marker = '+', alpha = 0.5, label = 't=1344 hr est resistant')
+#pos = ax.scatter(xpos1, ypos1, zpos1, c='olivedrab', marker = '+', alpha = 0.5, label = 't=1176 hr est sensitive')
+#por = ax.scatter(xpor1, ypor1, zpor1, c='pink', marker = '+', alpha = 0.5, label = 't=1176 hr est resistant')
 
+
+pos2 = ax.scatter(xpos2, ypos2, zpos2, c='olivedrab', marker = '+', alpha = 0.5, label = 't=1656 hr est sensitive')
+por2 = ax.scatter(xpor2, ypor2, zpor2, c='pink', marker = '+', alpha = 0.5, label = 't=1656 hr est resistant')
 
 
 ax.set_xlabel('PC1')
@@ -444,8 +530,8 @@ fig = plt.figure(figsize=(10,10))
 srs = plt.scatter(xsrs, ysrs, c='g', marker='^', alpha = 1, label = 't=0 hr labeled sensitive')
 srr = plt.scatter(xsrr, ysrr, c='r', marker='^', alpha = 1, label = 't=0 hr labeled resistant')
 #pre_cells = plt.scatter(xp, yp, c='b', marker='o', alpha = 0.2, label = 't=0 hr remaining')
-#xps = plt.scatter(xps, yps, c='olivedrab', marker='+', alpha = 0.5, label = 't=0 hr est sensitive')
-#yps = plt.scatter(xpr, ypr, c='pink', marker='+', alpha = 0.5, label = 't=0 hr est resistant')
+#pres = plt.scatter(xps, yps, c='olivedrab', marker='+', alpha = 0.5, label = 't=0 hr est sensitive')
+#prer = plt.scatter(xpr, ypr, c='pink', marker='+', alpha = 0.5, label = 't=0 hr est resistant')
 
 #int_cells = plt.scatter(xi, yi, c='grey', marker = 'o', alpha = 0.2, label = 't=30 hr unclassified')
 #ints = plt.scatter(xis, yis, c='olivedrab', marker = '+', alpha = 0.5, label = 't=30 hr est sensitive')
@@ -454,9 +540,10 @@ srr = plt.scatter(xsrr, ysrr, c='r', marker='^', alpha = 1, label = 't=0 hr labe
 
 #ls_pre = plt.scatter(xsrls, ysrls,  c='lime', marker='o', alpha = 1, label = 'sensitive lineage AA170')
 #lr_pre = plt.scatter(xsrlr, ysrlr, c='fuchsia', marker='o', alpha = 1, label = 'resistant lineage AA161')
-pos = plt.scatter(xpos, ypos,  c='olivedrab', marker = '+', alpha = 0.5, label = 't=1344hr est sensitive')
-por = plt.scatter(xpor, ypor,  c='pink', marker = '+', alpha = 0.5, label = 't=1344 hr est resistant')
-
+#pos1 = plt.scatter(xpos1, ypos1,  c='olivedrab', marker = '+', alpha = 0.5, label = 't=1176 hr est sensitive')
+#por1 = plt.scatter(xpor1, ypor1,  c='pink', marker = '+', alpha = 0.5, label = 't=1176 hr est resistant')
+pos2 = plt.scatter(xpos2, ypos2,  c='olivedrab', marker = '+', alpha = 0.5, label = 't=1656 hr est sensitive')
+por2 = plt.scatter(xpor2, ypor2,  c='pink', marker = '+', alpha = 0.5, label = 't=1656 hr est resistant')
 
 plt.xlabel('PC1')
 plt.ylabel('PC2')
