@@ -82,8 +82,8 @@ adata.obs.head()
 #%% Assign survivor category in adata.obs
 longTreatLins = adata.obs.loc[(adata.obs['sample'].isin(['FM1','FM7']))&(adata.obs.lineage!='nan'),'lineage'].unique().tolist()
 
-adata.obs.loc[adata.obs.lineage.isin(longTreatLins)==False,'survivor'] = 'sens'
-adata.obs.loc[adata.obs.lineage.isin(longTreatLins)==True,'survivor'] = 'res'
+adata.obs.loc[adata.obs.lineage.isin(longTreatLins)==False,'survivor'] = 'non-survivor'
+adata.obs.loc[adata.obs.lineage.isin(longTreatLins)==True,'survivor'] = 'survivor'
 
 # %%try to rename the samples by time point
 samps= adata.obs['sample'].unique()
@@ -95,8 +95,10 @@ adata.obs.loc[adata.obs['sample']==samps[2], 'timepoint']='t=29d'
 
 
 print(adata.obs['timepoint'].unique())
-
-
+sc.pl.umap(adata,color='timepoint',palette=['#2c9e2f','#046df7', '#d604f7', '#c91212'])
+sc.pl.umap(adata, color = 'survivor')                                            
+#sc.pl.umap(adata, color=list(adata.obs.drop('sample',axis=1)),save=True)
+#sc.tl.umap(adata, color=['sample','HLA-DRB1','HLA-DRA'], wspace = 0.3)
 
 #%% Separately make dataframes for the pre-treatment, intermediate, and post treatment samples
 # t=0 hr (pre-treatment), 2003 pre treatment cells, 21317 genes measured
@@ -112,7 +114,90 @@ adata_post = adata[adata.obs['timepoint']=='t=29d', :]
 dfpost = pd.concat([adata_post.obs['lineage'],
                    pd.DataFrame(adata_post.raw.X, index=adata_post.obs.index, 
                                 columns = adata_post.var_names),], axis=1)
+#%% Make data frames of lienage abundances pre and post treatment
+linAbundpre= adata_pre.obs['lineage'].value_counts()
+npre =2003
+linAbundpost= adata_post.obs['lineage'].value_counts()
+npost = 6972
+#%% Make into data frames
 
+df1 = pd.DataFrame(linAbundpre)
+df1['linabundpre']= df1.lineage
+df1=df1.drop(['lineage'], axis=1)
+df1['lineage'] = df1.index
+df1=df1.drop(index='nan')
+
+df2 = pd.DataFrame(linAbundpost)
+df2['linabundpost']= df2.lineage
+df2=df2.drop(['lineage'], axis=1)
+df2['lineage'] = df2.index
+df2=df2.drop(index='nan')
+#%% IN your df pre, andd the columns for pre and post lineage abundance
+#  Merge the linage abundance data frames from the pre and post treatment samples into dfpre
+dfpre= pd.DataFrame.merge(df1, dfpre, left_on=['lineage'], 
+              right_on=['lineage'], how='right')
+dfpre = pd.DataFrame.merge(df2, dfpre, left_on=['lineage'],
+              right_on=['lineage'], how='right') 
+dfpre['linabundpost'] = dfpre['linabundpost'].fillna(0)
+dfpre['linabundpre']= dfpre['linabundpre'].fillna(0)
+dfpre['linproppost'] = dfpre['linabundpost']/npost
+dfpre['linproppre'] = dfpre['linabundpre']/npre
+
+#%% Make a column that is the logfoldchange from post to pre
+
+dfpre['linpropchange'] = (dfpre['linproppost']-dfpre['linproppre'])
+linpropchangevec = dfpre['linpropchange']
+plt.figure()
+plt.hist(dfpre['linpropchange'], bins = 100)
+plt.xlabel(' Change in lineage abundance (% of post- % of pre)')
+plt.ylabel('number of cells')
+
+dfpre.loc[dfpre.linpropchange>0.0, 'linabundcategory'] = 'high'
+
+dfpre.loc[dfpre.linpropchange<0.0, 'linabundcategory']= 'low'
+
+incabundlins = dfpre.loc[(dfpre['linabundcategory']=='high'),'lineage'].unique().tolist()
+
+adata.obs.loc[adata.obs.lineage.isin(incabundlins)==False,'linpropchange'] = 'low'
+adata.obs.loc[adata.obs.lineage.isin(incabundlins)==True,'linpropchange'] = 'high'
+sc.pl.umap(adata,color='linpropchange',palette=['#a00101','#f79d02','#00c6c6','#FFFF00','#8ca8ff','#ff7aef','#0800ff','#06a803','#a200b7','#dddddd'])
+#%%
+
+dfpre['foldchange'] =  (dfpre['linabundpost']-dfpre['linabundpre'])
+#dfpre['foldchange'] =  ((dfpre['linabundpost']/npost)-(dfpre['linabundpre']/npre))/(dfpre['linabundpre']/npre)
+print(dfpre['foldchange'].unique())
+foldchangevec = dfpre['foldchange']
+
+dfpre['logfoldchange'] = np.log(dfpre['foldchange'])
+dfpre['logfoldchange']= dfpre['logfoldchange'].fillna(0)
+logfoldchangevec = dfpre['logfoldchange']
+
+print(dfpre['logfoldchange'].unique())
+
+# Figures of logfold change and fold change
+plt.figure()
+plt.hist(dfpre['logfoldchange'], range = [-1, 10], bins = 100)
+plt.xlabel('log(foldchange) of lineage abundance')
+plt.ylabel('number of cells')
+
+plt.figure()
+plt.hist(dfpre['foldchange'],range = [-500, 500], bins = 100)
+plt.xlabel('foldchange of lineage abundance')
+plt.ylabel('number of cells')
+
+dfpre.loc[dfpre.logfoldchange>0, 'linabundchange'] = 'high'
+
+dfpre.loc[dfpre.logfoldchange<0, 'linabundchange']= 'low'
+#dfpre.loc[dfpre.foldchange<-0.7, 'survivor']= 'sens'
+survivorvec = dfpre['linabundchange']
+
+#%%
+#incabundlins = adata.obs.loc[(adata.obs['sample'].isin(['FM1','FM7']))&(adata.obs.lineage!='nan'),'lineage'].unique().tolist()
+incabundlins = dfpre.loc[(dfpre['survivor']=='res'),'lineage'].unique().tolist()
+
+adata.obs.loc[adata.obs.lineage.isin(incabundlins)==False,'linabundchange'] = 'low'
+adata.obs.loc[adata.obs.lineage.isin(incabundlins)==True,'linabundchange'] = 'high'
+sc.pl.umap(adata,color='linabundchange')
 
 #%% Use sklearn to do principle component analysis on the  entire pre-treatment sample
 #X = dfpre.loc[:, dfpre.columns !='survivor', dfpre.columns !='lineage']

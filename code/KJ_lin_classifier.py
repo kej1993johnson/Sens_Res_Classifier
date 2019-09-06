@@ -183,6 +183,17 @@ dfpre = pd.DataFrame.merge(df2, dfpre, left_on=['lineage'],
               right_on=['lineage'], how='right') 
 dfpre['linabundpost'] = dfpre['linabundpost'].fillna(0)
 dfpre['linabundpre']= dfpre['linabundpre'].fillna(0)
+
+dfpre['linproppost'] = dfpre['linabundpost']/nPOST
+dfpre['linproppre'] = dfpre['linabundpre']/npre
+
+dfpre['linpropchange'] = (dfpre['linproppost']-dfpre['linproppre'])
+linpropchangevec = dfpre['linpropchange']
+plt.figure()
+plt.hist(dfpre['linpropchange'], bins = 100)
+plt.xlabel(' Change in lineage abundance (% of post- % of pre)')
+plt.ylabel('number of cells')
+
 #%% Make a column that is the logfoldchange from post to pre
 
 dfpre['foldchange'] =  (dfpre['linabundpost']-dfpre['linabundpre'])
@@ -210,9 +221,9 @@ plt.ylabel('number of cells')
 #%% Make the survivor column, but don't label it yet. 
 #dfpre['survivor'] =np.where(dfpre['linabundpost'] >1000, 'res','sens'
 # Want to call cells that have an increase in lineage abundance resistant
-dfpre.loc[dfpre.foldchange>0, 'survivor'] = 'res'
+dfpre.loc[dfpre.linpropchange>0, 'survivor'] = 'res'
 
-dfpre.loc[dfpre.foldchange<-200, 'survivor']= 'sens'
+dfpre.loc[dfpre.linpropchange<-0.1, 'survivor']= 'sens' # make a strict cutoff of wer're sure it decreases significantly
 #dfpre.loc[dfpre.foldchange<-0.7, 'survivor']= 'sens'
 survivorvec = dfpre['survivor']
 
@@ -228,16 +239,17 @@ y= pd.factorize(dfsr['survivor'])[0]
 y ^= 1
 mu_sr = sum(y)/len(y)
 print(mu_sr)
-Xsr = dfsr.drop(columns= [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'foldchange', 'logfoldchange', 'survivor'])
+Xsr = dfsr.drop(columns= [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'linproppost', 'linproppre', 'linpropchange', 'foldchange', 'logfoldchange', 'survivor'])
 
 dfpremin = dfpre[(dfpre['survivor']!='sens') & (dfpre['survivor'] != 'res')]
-Xpremin = dfpremin.drop(columns = [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'foldchange', 'logfoldchange', 'survivor',])
+Xpremin = dfpremin.drop(columns = [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'linproppost', 'linproppre','linpropchange','foldchange', 'logfoldchange', 'survivor',])
 npremin = len(dfpremin)
 print(npremin)
+
 #%% Make your gene cell matrices, for all time points and as isolated time points
 
 
-Xpre= dfpre.drop(columns= [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'foldchange', 'logfoldchange', 'survivor'])
+Xpre= dfpre.drop(columns= [ 'lineage', 'linabundpost', 'recalled_lin', 'linproppre', 'linproppost','linabundpre', 'linpropchange', 'foldchange', 'logfoldchange','survivor'])
 Xall = dfall.drop(columns = ['lineage', 'timepoint'])
 
 npre = len(Xpre)
@@ -255,7 +267,7 @@ Xpost2 = dfpost2.drop(columns =['lineage', 'recalled_lin'])
 # %%Assign the optimal parameters (foudn from KJ_classify_sklearn.py) for building your prediction model 
 # p(x|Sj) where Sj is your training set and x is any new cell (in your test set or in future cells)
 # Will want to redo these optimized hyperparameters with the new way of classifying cells as sensitive or resistant by cluster
-n_neighbors = 1
+n_neighbors = 90
 n_components = 100
 
 knn = KNeighborsClassifier(n_neighbors=n_neighbors)
@@ -297,7 +309,7 @@ print(cdf_varPCs)
 #%% Fit a nearest neighbor classifier on the model built on the training data set
 knn.fit(pca.transform(Xsr), y)
   
-thres_prob = 0.17
+thres_prob = 0.15
 # Apply the pca and knn classifier to the pre, int, and post1&2 treatment samples. 
 y_premin = knn.predict(pca.transform(Xpremin))
 pre_prob= knn.predict_proba(pca.transform(Xpremin))
@@ -308,10 +320,10 @@ mu_pre_PCA = (sum(y_pre)+sum(y))/(len(Xpremin) + len(Xsr))
 sigmasq_pre_PCA = mu_pre_PCA*(1-mu_pre_PCA)/(len(Xsr)+len(Xpremin))
 sigmasq_pre = (mu_pre*(1-mu_pre))/(npre)
 mu_pre_k = (sum(y_premin)+sum(y))/npre
-print(mu_pre)
-print(mu_pre_k)
-print(mu_pre)
-print(sigmasq_pre)
+#print(mu_pre)
+#print(mu_pre_k)
+#print(mu_pre_PCA)
+#print(sigmasq_pre)
 
 y_int = knn.predict(pca.transform(Xint))
 int_prob= knn.predict_proba(pca.transform(Xint))
@@ -321,10 +333,10 @@ y_intpr = C*1
 mu_int_PCA = sum(y_intpr)/(len(y_intpr))
 sigmasq_int_PCA = mu_int_PCA*(1-mu_int_PCA)/(len(Xint))
 mu_int_k = (sum(y_int))/nint
-print(mu_int)
-print(mu_int_k)
-print(mu_int_PCA)
-print(sigmasq_int_PCA)
+#print(mu_int)
+#rint(mu_int_k)
+#print(mu_int_PCA)
+#print(sigmasq_int_PCA)
 
 y_post1= knn.predict(pca.transform(Xpost1))
 post_prob1= knn.predict_proba(pca.transform(Xpost1))
@@ -334,10 +346,10 @@ y_postpr1 = D*1
 mu_post1_PCA = sum(y_postpr1)/(len(y_postpr1))
 sigmasq_post1_PCA = mu_post1_PCA*(1-mu_post1_PCA)/len(Xpost1)
 mu_post1_k = sum(y_post1)/npost1
-print(mu_post1)
-print(mu_post1_k)
-print(mu_post1_PCA)
-print(sigmasq_post1_PCA)
+#print(mu_post1)
+#print(mu_post1_k)
+#print(mu_post1_PCA)
+#print(sigmasq_post1_PCA)
 
 y_post2 = knn.predict(pca.transform(Xpost2))
 post_prob2= knn.predict_proba(pca.transform(Xpost2))
@@ -347,11 +359,38 @@ y_postpr2 = E*1
 mu_post2_PCA = sum(y_postpr2)/(len(y_postpr2))
 sigmasq_post2_PCA = mu_post2_PCA*(1-mu_post2_PCA)/len(Xpost2)
 mu_post2_k = sum(y_post2)/npost2
-print(mu_post2)
-print(mu_post2_k)
-print(mu_post2_PCA)
-print(sigmasq_post2_PCA)
+#print(mu_post2)
+#print(mu_post2_k)
+#print(mu_post2_PCA)
+#print(sigmasq_post2_PCA)
+#%% 
+thres_prob = 0.15
+B = pre_prob[:,1]>thres_prob
+y_pre = B*1
+mu_pre_PCA = (sum(y_pre)+sum(y))/(len(Xpremin) + len(Xsr))
 
+D= post_prob1[:,1]>thres_prob
+y_postpr1 = D*1
+mu_post1_PCA = sum(y_postpr1)/(len(y_postpr1))
+
+E= post_prob2[:,1]>thres_prob
+y_postpr2 = E*1
+mu_post2_PCA = sum(y_postpr2)/(len(y_postpr2))
+#%%
+print('phir0=',mu_pre_PCA)
+print('phir7wks=', mu_post1_PCA)
+print('phi10wks=', mu_post2_PCA)
+
+phi_est= {'phi_t': [1-mu_pre_PCA, 1-mu_post1_PCA, 1-mu_post2_PCA],
+        't': [0, 1176, 1656],
+        'ncells': [3157,5262,4900]
+        }
+
+dfphi= DataFrame(phi_est, columns= ['phi_t', 't', 'ncells'])
+
+print(dfphi)
+
+dfphi.to_csv("phi_t_est_pyth.csv")
 
 
 #%% Make data frames for the pre, int, and post-treatment cells in PC space
