@@ -113,6 +113,9 @@ adata.obs.loc[adata.obs['sample']==samps[1], 'TP']='int'
 adata.obs.loc[adata.obs['sample']==samps[2], 'TP']='post'
 adata.obs.loc[adata.obs['sample']==samps[3], 'TP']='post'
 
+sc.pl.umap(adata,color='timepoint',palette=['#2c9e2f','#046df7', '#d604f7', '#c91212'])
+sc.pl.umap(adata,color='recalled_lin',palette=['#a00101','#f79d02','#00c6c6'])                                         
+
 #%% Separately make dataframes for the pre-treatment, intermediate, and post treatment samples
 # t=0 hr (pre-treatment), 3182 pre treatment cells
 # We want to keep the info about the lineage so we can potentially
@@ -126,6 +129,7 @@ adata_pre = adata[adata.obs['timepoint']=='t=0hr', :]
 dfpre = pd.concat([adata_pre.obs['lineage'], adata_pre.obs['recalled_lin'],
                pd.DataFrame(adata_pre.raw.X,index=adata_pre.obs.index,
                             columns=adata_pre.var_names),], axis=1) 
+sc.pl.umap(adata_pre,color='recalled_lin',palette=['#a00101','#f79d02','#00c6c6']) 
 npre = len(dfpre)
 print(npre)
 # t = 30 hr (intermediate timepoint) 5169 int treatment cells
@@ -218,12 +222,12 @@ plt.hist(dfpre['foldchange'],range = [0, 500], bins = 100)
 plt.xlabel('foldchange of lineage abundance')
 plt.ylabel('number of cells')
 
-#%% Make the survivor column, but don't label it yet. 
+#%% Make the survivor column in the pre-treatment data based on linpropchange 
 #dfpre['survivor'] =np.where(dfpre['linabundpost'] >1000, 'res','sens'
 # Want to call cells that have an increase in lineage abundance resistant
 dfpre.loc[dfpre.linpropchange>0, 'survivor'] = 'res'
 
-dfpre.loc[dfpre.linpropchange<-0.1, 'survivor']= 'sens' # make a strict cutoff of wer're sure it decreases significantly
+dfpre.loc[dfpre.linpropchange<-0.05, 'survivor']= 'sens' # make a strict cutoff of wer're sure it decreases significantly
 #dfpre.loc[dfpre.foldchange<-0.7, 'survivor']= 'sens'
 survivorvec = dfpre['survivor']
 
@@ -240,6 +244,18 @@ y ^= 1
 mu_sr = sum(y)/len(y)
 print(mu_sr)
 Xsr = dfsr.drop(columns= [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'linproppost', 'linproppre', 'linpropchange', 'foldchange', 'logfoldchange', 'survivor'])
+nres = sum(y);
+dfres = dfsr[(dfsr['survivor']=='res')]
+dfsens = dfsr[(dfsr['survivor']=='sens')]
+dfsenssmall = dfsens.sample(nres)
+
+dfsmall = pd.concat([dfsenssmall, dfres])
+ysmall = pd.factorize(dfsmall['survivor'])[0]
+ysmall^=1
+Xsmall= dfsmall.drop(columns= [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'linproppost', 'linproppre', 'linpropchange', 'foldchange', 'logfoldchange', 'survivor'])
+
+
+#%% Make the data frame for the unknown class cells at TP0
 
 dfpremin = dfpre[(dfpre['survivor']!='sens') & (dfpre['survivor'] != 'res')]
 Xpremin = dfpremin.drop(columns = [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'linproppost', 'linproppre','linpropchange','foldchange', 'logfoldchange', 'survivor',])
@@ -267,15 +283,15 @@ Xpost2 = dfpost2.drop(columns =['lineage', 'recalled_lin'])
 # %%Assign the optimal parameters (foudn from KJ_classify_sklearn.py) for building your prediction model 
 # p(x|Sj) where Sj is your training set and x is any new cell (in your test set or in future cells)
 # Will want to redo these optimized hyperparameters with the new way of classifying cells as sensitive or resistant by cluster
-n_neighbors = 90
-n_components = 100
+n_neighbors = 91
+n_components = 500
 
 knn = KNeighborsClassifier(n_neighbors=n_neighbors)
 
-#pca=PCA(copy=True, iterated_power='auto', n_components=n_components, random_state=0,
-            #svd_solver='auto', tol=0.0, whiten=False)
+pca=PCA(copy=True, iterated_power='auto', n_components=n_components, random_state=0,
+            svd_solver='auto', tol=0.0, whiten=False)
 
-pca = PCA(n_components=0.90, svd_solver='full', random_state = 0)
+#pca = PCA(n_components=0.90, svd_solver='full', random_state = 0)
 
 
 
@@ -306,9 +322,147 @@ var_in_PCs= pca.explained_variance_ratio_
 cdf_varPCs = var_in_PCs.cumsum()
 print(var_in_PCs)
 print(cdf_varPCs)
-#%% Fit a nearest neighbor classifier on the model built on the training data set
-knn.fit(pca.transform(Xsr), y)
+#%% Run PCA on entire pre-treatment data set
+X = Xsr
+full_dict = {'fullmat':{}, 'prev':{}, 'labels':{}, 'V':{}, 'lambdas':{}, 'varPC':{}}
+random_state = 0
+
+pca=PCA(copy=True, iterated_power='auto', n_components=n_components, random_state=0,
+            svd_solver='auto', tol=0.0, whiten=False)
+V = pca.fit(X)  
+varPC= (pca.explained_variance_ratio_)  
+
+lambdas = pca.singular_values_ 
+full_dict['full_mat'] = X
+full_dict['labels']=y
+full_dict['V']= V
+full_dict['varPC']= varPC
+
+#%% Split into train/test
+kCV = 5
+skf = StratifiedKFold(n_splits=kCV, shuffle= True)
+Atrain = {}
+Atest = {}
+ytest = {}
+ytrain = {}
+proprestest = {}
+proprestrain = {}
+
+folds_dict = {'trainmat':{}, 'trainlabel':{}, 'eigenvectors':{}, 'eigvals':{}, 'meanvec':{}}
+for i in range(kCV):    
+    for train_index, test_index in skf.split(X, y):
+        Atrain[i] = X.iloc[train_index, :]
+        Atest[i] = X.iloc[test_index, :]
+        ytest[i]= y[test_index]
+        ytrain[i]= y[train_index]
+        proprestest[i] = sum(ytest[i])/len(ytest[i])
+        proprestrain[i] = sum(ytrain[i])/len(ytrain[i])
+         
+# Save all of your stratified folds into a single dictionary. 
+folds_dict['trainmat'] = Atrain
+folds_dict['trainlabel']= ytrain
+folds_dict['testmat'] = Atest
+folds_dict['testlabel'] = ytest
+folds_dict['prevtest'] = proprestest
+folds_dict['prevtrain']= proprestrain
+
+
+
+n_classes = len(np.unique(y))
+      
+
+
+# Use a nearest neighbor classifier to evaluate the methods
+knn = KNeighborsClassifier(n_neighbors=n_neighbors)
+
+pca=PCA(copy=True, iterated_power='auto', n_components=n_components, random_state=0,
+            svd_solver='auto', tol=0.0, whiten=False)
+
+#%% #Compute the ROC curve for each fold
+
+
+AUC=np.zeros((kCV,1))
+acc = np.zeros((kCV,1))
+for i in range(kCV):
+    X_train = folds_dict['trainmat'][i]
+    y_train = folds_dict['trainlabel'][i]
+    X_test = folds_dict['testmat'][i]
+    y_test = folds_dict['testlabel'][i]
+    
+    # Build new model based on training data set
+    pca.fit(X_train, y_train)
+    V_train = pca.fit_transform(X_train)
+# Fit a nearest neighbor classifier on the model built on the training data set
+    knn.fit(pca.transform(X_train), y_train)
+    prob_scores = knn.predict_proba(pca.transform(X_test))
+# Compute the nearest neighbor accuracy on the embedded test set
+    acc_knn = knn.score(pca.transform(X_test), y_test)
+    acc[i]=acc_knn
+    fpr, tpr, thresholds = metrics.roc_curve(y_test, prob_scores[:,1], pos_label=1)
+    roc_auc = auc(fpr, tpr)
+    plt.figure()
+    lw = 2
+    plt.plot(fpr, tpr, color='darkorange',
+         lw=lw, label='ROC curve (area = %0.2f)' % roc_auc)
+    plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve from k-fold CV')
+    plt.legend(loc="lower right")
+    plt.show()
+
+    AUC[i]= roc_auc
   
+plt.figure()
+plt.plot(np.linspace(0,4, num=kCV), AUC)
+plt.ylim([0.5, 1.05])
+plt.xlabel('fold')
+plt.ylabel('AUC')
+plt.title('AUC for each fold')
+plt.show()
+
+meanAUC_PCA = AUC.mean()
+
+
+
+#%% Generate ROC curve to determine the best threshold for deciding on class
+n_classes = len(np.unique(y))
+      
+# Fit a nearest neighbor classifier on the model built on the training data set
+knn.fit(pca.transform(Xsmall), ysmall)
+prob_scores = knn.predict_proba(pca.transform(Xsmall))
+# Compute the nearest neighbor accuracy on the embedded test set
+acc_knn = knn.score(pca.transform(Xsmall), ysmall)
+fpr, tpr, thresholds = metrics.roc_curve(ysmall, prob_scores[:,1], pos_label=1)
+roc_auc = auc(fpr, tpr)
+
+plt.figure()
+lw = 2
+plt.plot(fpr, tpr, color='darkorange',
+         lw=lw, label='ROC curve (area = %0.2f)' % roc_auc)
+plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve')
+plt.legend(loc="lower right")
+plt.show()
+
+AUC= roc_auc
+  
+
+
+
+#%% Fit a nearest neighbor classifier on the model built on the training data set
+
+# Make a nearest neighbor classifier from the down sampled sensitive cells
+#knn.fit(pca.transform(Xsmall), ysmall)
+
+knn.fit(pca.transform(Xsr), y)
+
 thres_prob = 0.15
 # Apply the pca and knn classifier to the pre, int, and post1&2 treatment samples. 
 y_premin = knn.predict(pca.transform(Xpremin))
@@ -376,11 +530,11 @@ mu_post1_PCA = sum(y_postpr1)/(len(y_postpr1))
 E= post_prob2[:,1]>thres_prob
 y_postpr2 = E*1
 mu_post2_PCA = sum(y_postpr2)/(len(y_postpr2))
-#%%
+
 print('phir0=',mu_pre_PCA)
 print('phir7wks=', mu_post1_PCA)
 print('phi10wks=', mu_post2_PCA)
-
+#%%
 phi_est= {'phi_t': [1-mu_pre_PCA, 1-mu_post1_PCA, 1-mu_post2_PCA],
         't': [0, 1176, 1656],
         'ncells': [3157,5262,4900]
@@ -392,6 +546,17 @@ print(dfphi)
 
 dfphi.to_csv("phi_t_est_pyth.csv")
 
+
+
+
+
+#%%
+import os
+
+filename = "phi_t_est_pyth.csv"
+path = "/Users/kj22643/Documents/Documents/Grant_dose_optimization/data"
+fullpath = os.path.join(path, filename)
+dfphi.to_csv("phi_t_est_pyth.csv")
 
 #%% Make data frames for the pre, int, and post-treatment cells in PC space
 
@@ -543,12 +708,12 @@ srr = ax.scatter(xsrr, ysrr, zsrr, c='r', marker='^', alpha = 1, label = 't=0 hr
 #intr = ax.scatter(xir, yir, zir, c='pink', marker = '+', alpha = 0.5, label = 't=30 hr est resistant')
 
 #post_cells = ax.scatter(xpo, ypo, zpo, c='c', marker = 'o', alpha = 0.1, label = 't=1344 hr')
-#pos = ax.scatter(xpos1, ypos1, zpos1, c='olivedrab', marker = '+', alpha = 0.5, label = 't=1176 hr est sensitive')
-#por = ax.scatter(xpor1, ypor1, zpor1, c='pink', marker = '+', alpha = 0.5, label = 't=1176 hr est resistant')
+#os = ax.scatter(xpos1, ypos1, zpos1, c='olivedrab', marker = '+', alpha = 0.5, label = 't=1176 hr est sensitive')
+por = ax.scatter(xpor1, ypor1, zpor1, c='pink', marker = '+', alpha = 0.5, label = 't=1176 hr est resistant')
 
 
-pos2 = ax.scatter(xpos2, ypos2, zpos2, c='olivedrab', marker = '+', alpha = 0.5, label = 't=1656 hr est sensitive')
-por2 = ax.scatter(xpor2, ypor2, zpor2, c='pink', marker = '+', alpha = 0.5, label = 't=1656 hr est resistant')
+#pos2 = ax.scatter(xpos2, ypos2, zpos2, c='olivedrab', marker = '+', alpha = 0.5, label = 't=1656 hr est sensitive')
+#por2 = ax.scatter(xpor2, ypor2, zpor2, c='pink', marker = '+', alpha = 0.5, label = 't=1656 hr est resistant')
 
 
 ax.set_xlabel('PC1')
