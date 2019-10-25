@@ -107,17 +107,7 @@ adata.obs.loc[adata.obs['sample']==samps[2], 'timepoint']='t=1176hr'
 adata.obs.loc[adata.obs['sample']==samps[3], 'timepoint']='t=1656hr'
 
 print(adata.obs['timepoint'].unique())
-#%% Add a .obs to rename the samples by time point
-samps= adata.obs['sample'].unique()
 
-timepoint = np.array(['t=0hr', 't=30hr', 't=1176hr', 't=1656hr'])
-
-adata.obs.loc[adata.obs['sample']==samps[0], 'timepoint']='t=0hr'
-adata.obs.loc[adata.obs['sample']==samps[1], 'timepoint']='t=30hr'
-adata.obs.loc[adata.obs['sample']==samps[2], 'timepoint']='t=1176hr'
-adata.obs.loc[adata.obs['sample']==samps[3], 'timepoint']='t=1656hr'
-
-print(adata.obs['timepoint'].unique())
 
 TP = np.array(['pre', 'int', 'post'])
 
@@ -126,8 +116,14 @@ adata.obs.loc[adata.obs['sample']==samps[1], 'TP']='int'
 adata.obs.loc[adata.obs['sample']==samps[2], 'TP']='post'
 adata.obs.loc[adata.obs['sample']==samps[3], 'TP']='post'
 
-sc.pl.umap(adata,color='timepoint',palette=['#2c9e2f','#046df7', '#d604f7', '#c91212'])
-sc.pl.umap(adata,color='recalled_lin',palette=['gray','red','green'])   
+adatasel = adata[adata.obs['timepoint']!='t=30hr', :]
+
+sc.pl.umap(adatasel,color='timepoint',palette=['#2c9e2f', '#d604f7', '#c91212'])
+sc.pl.umap(adatasel,color='recalled_lin',palette=['#a00101','#f79d02','#00c6c6'])   
+
+sc.pl.umap(adatasel,color='timepoint',palette=['#f79d02', '#d604f7', '#00c6c6'])
+sc.pl.umap(adatasel,color='recalled_lin',palette=['#00c6c6','#c91212','#2c9e2f'])
+  
 #%%
 #top = adata.obs.loc[adata.obs.lineage!='nan','lineage'].value_counts()[:9].index.tolist()
 #adata.obs['topLineages'] = adata.obs.loc[adata.obs.lineage.isin(top),'lineage'].cat.set_categories(top+['other'])
@@ -152,6 +148,11 @@ adata.uns['linpropchange'] = d3
 adata.obs['linpropchange']= adata.obs['lineage'].map(d3)
 sc.pl.umap(adata,color='linpropchange')
 sc.pl.umap(adata,color='timepoint',palette=['#2c9e2f','#046df7', '#d604f7', '#c91212'])
+                                            
+plt.figure()
+plt.hist(adata.obs.loc[adata.obs.timepoint == 't=0hr','linpropchange'], bins = 100)
+plt.xlabel(' Change in lineage abundance (% of post- % of pre)')
+plt.ylabel('number of cells')                                          
 
 #%% Make the sensitive and resistant labels within your anndata object
 #adata.obs.loc[(adata.obs['sample']==samp)&(adata.obs.lineage!='nan'),'lineage'].value_counts()[:6])
@@ -186,7 +187,7 @@ Xsr = dfsr.drop(columns= [ 'classLabel', 'lineage', 'recalled_lin'])
 #Assign the optimal parameters (foudn from KJ_classifier_optimization.py) for building your prediction model 
 # p(x|Sj) where Sj is your training set and x is any new cell (in your test set or in future cells)
 # Will want to redo these optimized hyperparameters with the new way of classifying cells as sensitive or resistant by cluster
-n_neighbors = 91
+n_neighbors = 63
 n_components = 500
 
 knn = KNeighborsClassifier(n_neighbors=n_neighbors)
@@ -224,6 +225,15 @@ topgenesPC2=PC2.iloc[(-np.abs(PC2.values)).argsort()]
 sc.pl.umap(adata_sr,color=['UBE2S'])
 sc.pl.umap(adata_sr,color=['NEAT1'])
 sc.pl.umap(adata_sr,color=['TOP2A'])
+sc.pl.umap(adata_sr, color = ['IL1RAPL1'])
+sc.pl.umap(adata_sr,color = ['IL18'])
+
+sc.pl.umap(adatasel,color=['UBE2S'])
+sc.pl.umap(adatasel,color=['NEAT1'])
+sc.pl.umap(adatasel,color=['TOP2A'])
+sc.pl.umap(adatasel, color = ['IL1RAPL1'])
+sc.pl.umap(adatasel,color = ['IL18'])
+
 
 
 # We can use the compdf to make the arrow plot of the gene weights in PC space 
@@ -232,7 +242,35 @@ PCsr = pca.transform(Xsr)
 
 knn.fit(pca.transform(Xsr), y)
 
-thres_prob = 0.15
+#%% Look at explained variance
+var_in_PCs= pca.explained_variance_ratio_
+cdf_varPCs = var_in_PCs.cumsum()
+print(var_in_PCs[:49])
+print(cdf_varPCs[:49])
+#%%
+plt.figure()
+plt.plot(np.linspace(1, len(var_in_PCs), len(var_in_PCs)), var_in_PCs)
+plt.xlabel('PC')
+plt.ylabel('Variance in each PC') 
+
+plt.figure()
+plt.plot(np.linspace(1, 49, 49), var_in_PCs[:49])
+plt.xlabel('PC')
+plt.ylabel('Variance in each PC') 
+#%%
+plt.figure()
+plt.plot(np.linspace(1, len(cdf_varPCs), len(cdf_varPCs)), cdf_varPCs)
+plt.xlabel('PC')
+plt.ylabel('CDF of variance in each PC') 
+
+plt.figure()
+plt.plot(np.linspace(1, 49, 49), cdf_varPCs[:49])
+plt.xlabel('PC')
+plt.ylabel('CDF of variance in each PC') 
+
+
+
+
 #%% Visualize in PC space 
 PCs_sr=pca.transform(Xsr)
 PCsrdf = pd.DataFrame(PCs_sr)
@@ -266,11 +304,14 @@ adata_unk= adata[(adata.obs['classLabel']=='unknown'), :]
 Xunk = pd.DataFrame(adata_unk.raw.X,index=adata_unk.obs.index,
                             columns=adata_unk.var_names)
 #%% Use knn to make a vector of predicted classes
+thres_prob = 0.3
 y_unk = knn.predict(pca.transform(Xunk))
 pre_prob= knn.predict_proba(pca.transform(Xunk))
+#%% Vary the threshold probability 
+thres_prob = 0.2
 B = pre_prob[:,1]>thres_prob
 y_est=B*1
-#%% Try mapping outcomes
+#  Try mapping outcomes
 
 # first make an indexed data frame
 class_est= pd.DataFrame(y_est, index = adata_unk.obs.index)
@@ -281,15 +322,19 @@ sc.pl.umap(adata,color=['class_est'])
 adata.obs.loc[adata.obs.class_est==1, 'classLabel'] = 'res'
 adata.obs.loc[adata.obs.class_est==0, 'classLabel'] = 'sens'
 
+adatasel = adata[adata.obs['timepoint']!='t=30hr', :]
 
 
-sc.pl.umap(adata,color=['classLabel'])
-#%% Extract the data we need and plot some PCs
+sc.pl.umap(adatasel,color=['classLabel'])
+# Extract the data we need and plot some PCs
 adata_pre = adata[adata.obs['timepoint']=='t=0hr', :]
 dfpre = pd.concat([adata_pre.obs['classLabel'],
                pd.DataFrame(adata_pre.raw.X,index=adata_pre.obs.index,
                             columns=adata_pre.var_names),], axis=1) 
-sc.pl.umap(adata_pre,color='classLabel', palette = ['red', 'green']) 
+lin_list_pre = adata_pre.obs.lineage
+
+
+#sc.pl.umap(adata_pre,color='classLabel', palette = ['red', 'green']) 
 npre = len(dfpre)
 print(npre)
 ypreb = dfpre.classLabel=='res'
@@ -298,6 +343,12 @@ phirpre = (sum(ypre))/npre
 print(phirpre)
 phispre = 1-phirpre
 print(phispre)
+# Export the pre-treatment class labels
+ypre.to_csv("SRlabeled_pre.csv")
+
+filename = "SRlabeled_pre.csv"
+
+
 
 #%% Also plot the principal components for each time point 
 Xpre = adata_pre.raw.X
@@ -426,6 +477,11 @@ plt.legend(loc=1, prop={'size': 15})
 sc.pl.umap(adata,color=['UBE2S'])
 sc.pl.umap(adata,color=['NEAT1'])
 sc.pl.umap(adata,color=['TOP2A'])
+sc.pl.umap(adata, color = ['FGF5'])
+sc.pl.umap(adata,color = ['FGFR1'])
+sc.pl.umap(adata, color = ['IL1RAPL1'])
+sc.pl.umap(adata, color = ['IL18'])
+sc.pl.umap(adata,color= ['NONO'])
 
 #%% Put each cell's component in the top 4 PCs in the adata object
 PCsall = pca.transform(adata.raw.X)

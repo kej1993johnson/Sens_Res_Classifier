@@ -106,8 +106,11 @@ adata.obs.loc[adata.obs['sample']==samps[1], 'TP']='int'
 adata.obs.loc[adata.obs['sample']==samps[2], 'TP']='post'
 adata.obs.loc[adata.obs['sample']==samps[3], 'TP']='post'
 
-sc.pl.umap(adata,color='timepoint',palette=['#2c9e2f','#046df7', '#d604f7', '#c91212'])
-sc.pl.umap(adata,color='recalled_lin',palette=['#a00101','#f79d02','#00c6c6'])                                         
+# make an ann data object that doesn't contain the 30 hour time point
+adatasel = adata[adata.obs['timepoint']!='t=30hr', :]
+
+sc.pl.umap(adatasel,color='timepoint',palette=['#2c9e2f','#046df7', '#d604f7', '#c91212'])
+sc.pl.umap(adatasel,color='recalled_lin',palette=['#a00101','#f79d02','#00c6c6'])                                         
 
 #%% Separately make dataframes for the pre-treatment, intermediate, and post treatment samples
 # t=0 hr (pre-treatment), 3182 pre treatment cells
@@ -353,44 +356,91 @@ from func_file import find_mean_AUC
 
 meanAUCtest = find_mean_AUC(folds_dict, n_neighbors, n_components)
 print(meanAUCtest)
-#%% Run loop to vary the number of neighbors 
+#%% ITERATIVE COORDINATE OPTIMIZATION
+# Start by optimizing number of neighbors  holding number of components constant
 
-n_neighborsvec = np.linspace(1,101,num = 11)
+n_neighborsvec = np.linspace(1,250,num = 25)
 meanAUC_neighbs = np.zeros((len(n_neighborsvec),1))
 
 for i in range(len(n_neighborsvec)):
     meanAUC_neighbs[i]=find_mean_AUC(folds_dict, int(n_neighborsvec[i]), n_components)
- 
+
 plt.figure()
 plt.plot(n_neighborsvec, meanAUC_neighbs)
 plt.xlabel('k nearest neighbors')
 plt.ylabel('mean AUC')
-plt.title('mean AUC as a function of knn')
+plt.title('Optimizine knn Iteration 1')
 plt.show()
 
-#%%Use the optimal number of neighbors from this analysis to then find the optimal number of principal components...
 indexmax = np.argmax(meanAUC_neighbs)
-nneighbsopt = n_neighborsvec[indexmax]
-#%% Run loop to vary the number of components
-n_neighbors = int(nneighbsopt)
-n_compsvec = [2, 3, 5, 10, 20, 50, 100, 250, 500, 600]
+nneighbsopt1 = int(n_neighborsvec[indexmax])
+# Run loop to vary the number of components
+#n_neighbors = int(nneighbsopt)
+n_compsvec = [2, 3, 5, 10, 20, 35, 50, 75, 100, 250, 500, 600]
 meanAUC_comps = np.zeros((len(n_compsvec),1))
 for i in range(len(n_compsvec)):
-    meanAUC_comps[i]=find_mean_AUC(folds_dict, n_neighbors, n_compsvec[i])
+    meanAUC_comps[i]=find_mean_AUC(folds_dict, nneighbsopt1, n_compsvec[i])
 
 indexmaxc = np.argmax(meanAUC_comps)
-ncompsopt = n_compsvec[indexmaxc]
-  #%%  
+ncompsopt1 = n_compsvec[indexmaxc]
+  
 plt.figure()
 plt.plot(n_compsvec, meanAUC_comps)
 plt.xlabel('Number of principal components')
 plt.ylabel('mean AUC')
-plt.title('mean AUC as a function of number of PCs')
+plt.title('Optimizine PCs Iteration 1')
 plt.show()
+
+# Run loop to vary the number of neighbors again
+
+n_neighborsvec = np.linspace(1,250,num = 25)
+meanAUC_neighbs = np.zeros((len(n_neighborsvec),1))
+
+for i in range(len(n_neighborsvec)):
+    meanAUC_neighbs[i]=find_mean_AUC(folds_dict, int(n_neighborsvec[i]), ncompsopt1)
+
+plt.figure()
+plt.plot(n_neighborsvec, meanAUC_neighbs)
+plt.xlabel('k nearest neighbors')
+plt.ylabel('mean AUC')
+plt.title('Optimizine knn Iteration 2')
+plt.show()
+
+# Use the optimal number of neighbors from this analysis to then find the optimal number of principal components...
+indexmax = np.argmax(meanAUC_neighbs)
+nneighbsopt2 = int(n_neighborsvec[indexmax])
+
+# Run loop to vary the number of components again
+
+n_compsvec = [2, 3, 5, 10, 20, 35, 50, 75, 100, 250, 500, 600]
+meanAUC_comps = np.zeros((len(n_compsvec),1))
+for i in range(len(n_compsvec)):
+    meanAUC_comps[i]=find_mean_AUC(folds_dict, nneighbsopt2, n_compsvec[i])
+
+indexmaxc = np.argmax(meanAUC_comps)
+ncompsopt2 = n_compsvec[indexmaxc]
+ 
+plt.figure()
+plt.plot(n_compsvec, meanAUC_comps)
+plt.xlabel('Number of principal components')
+plt.ylabel('mean AUC')
+plt.title('Optimizne PCs Iteration 2')
+plt.show()
+
+
+
 #%% Set the number of neighbors and number of components to the two optimal values
 # and generate the ROC curve
 
-n_components = int(ncompsopt)
+n_components = int(ncompsopt2)
+n_neighbors = int(nneighbsopt2)
+
+# Use a nearest neighbor classifier to evaluate the methods
+knn = KNeighborsClassifier(n_neighbors=n_neighbors)
+
+pca=PCA(copy=True, iterated_power='auto', n_components=n_components, random_state=0,
+            svd_solver='auto', tol=0.0, whiten=False)
+
 
 X_train = folds_dict['trainmat'][1]
 y_train = folds_dict['trainlabel'][1]
@@ -417,7 +467,7 @@ plt.xlim([0.0, 1.0])
 plt.ylim([0.0, 1.05])
 plt.xlabel('False Positive Rate')
 plt.ylabel('True Positive Rate')
-plt.title('ROC Curve k=91, nPCs = 500')
+#plt.title('ROC Curve k=32, nPCs = 100')
 plt.legend(loc="lower right")
 plt.show()
 
