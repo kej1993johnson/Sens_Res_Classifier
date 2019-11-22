@@ -60,7 +60,6 @@ adata = sc.read('post-cell-cycle-regress.h5ad')
 adata.obs.head()
 # current samples:
 #BgL1K
-#30hr
 #Rel-1 AA107 7 weeks
 #Rel-2 AA113  10 weeks - 1 day
 # We will change these to time points
@@ -68,7 +67,7 @@ adata.obs.head()
 uniquelins = adata.obs['lineage'].unique()
 nunique = len(uniquelins)
 
-
+samps= adata.obs['sample'].unique()
 
 #%% Identify lineages that have been recalled from the pre-treatment sample
 # Make a column labeled recalled lin that can be use to identify the specific lineages of interest
@@ -90,27 +89,23 @@ print(adata.obs['recalled_lin'])
 #%% Add a column to rename the samples by time point
 samps= adata.obs['sample'].unique()
 
-timepoint = np.array(['t=0hr', 't=30hr', 't=1176hr', 't=1656hr'])
+timepoint = np.array(['t=0 wks', 't=7 wks', 't=10 wks'])
 
-adata.obs.loc[adata.obs['sample']==samps[0], 'timepoint']='t=0hr'
-adata.obs.loc[adata.obs['sample']==samps[1], 'timepoint']='t=30hr'
-adata.obs.loc[adata.obs['sample']==samps[2], 'timepoint']='t=1176hr'
-adata.obs.loc[adata.obs['sample']==samps[3], 'timepoint']='t=1656hr'
+adata.obs.loc[adata.obs['sample']==samps[0], 'timepoint']='t=0 wks'
+adata.obs.loc[adata.obs['sample']==samps[1], 'timepoint']='t=7 wks'
+adata.obs.loc[adata.obs['sample']==samps[2], 'timepoint']='t=10 wks'
 
 print(adata.obs['timepoint'].unique())
 
-TP = np.array(['pre', 'int', 'post'])
+TP = np.array(['pre', 'post'])
 
 adata.obs.loc[adata.obs['sample']==samps[0], 'TP']='pre'
-adata.obs.loc[adata.obs['sample']==samps[1], 'TP']='int'
+adata.obs.loc[adata.obs['sample']==samps[1], 'TP']='post'
 adata.obs.loc[adata.obs['sample']==samps[2], 'TP']='post'
-adata.obs.loc[adata.obs['sample']==samps[3], 'TP']='post'
 
-# make an ann data object that doesn't contain the 30 hour time point
-adatasel = adata[adata.obs['timepoint']!='t=30hr', :]
 
-sc.pl.umap(adatasel,color='timepoint',palette=['#2c9e2f','#046df7', '#d604f7', '#c91212'])
-sc.pl.umap(adatasel,color='recalled_lin',palette=['#a00101','#f79d02','#00c6c6'])                                         
+sc.pl.umap(adata,color='timepoint',palette=['#a00101','#f79d02','#00c6c6'])
+sc.pl.umap(adata,color='recalled_lin',palette=['#a00101','#f79d02','#00c6c6'])                                         
 
 #%% Separately make dataframes for the pre-treatment, intermediate, and post treatment samples
 # t=0 hr (pre-treatment), 3182 pre treatment cells
@@ -121,28 +116,22 @@ dfall = pd.concat([adata.obs['lineage'],adata.obs['timepoint'],
                             columns=adata.var_names),], axis=1) 
 ncells = len(dfall)
 print(ncells)
-adata_pre = adata[adata.obs['timepoint']=='t=0hr', :]
+adata_pre = adata[adata.obs['timepoint']=='t=0 wks', :]
 dfpre = pd.concat([adata_pre.obs['lineage'], adata_pre.obs['recalled_lin'],
                pd.DataFrame(adata_pre.raw.X,index=adata_pre.obs.index,
                             columns=adata_pre.var_names),], axis=1) 
 sc.pl.umap(adata_pre,color='recalled_lin',palette=['#a00101','#f79d02','#00c6c6']) 
 npre = len(dfpre)
 print(npre)
-# t = 30 hr (intermediate timepoint) 5169 int treatment cells
-adata_int = adata[adata.obs['timepoint']=='t=30hr', :]
-dfint = pd.concat([adata_int.obs['lineage'], adata_int.obs['recalled_lin'],
-                   pd.DataFrame(adata_int.raw.X, index=adata_int.obs.index, 
-                                columns = adata_int.var_names),], axis=1)
-nint = len(dfint)
-print(nint)
+
 # t=1176 hr (~roughly 7 weeks), 10332 post treatment cells
-adata_post1 = adata[adata.obs['timepoint']=='t=1176hr', :]
+adata_post1 = adata[adata.obs['timepoint']=='t=7 wks', :]
 dfpost1 = pd.concat([adata_post1.obs['lineage'], adata_post1.obs['recalled_lin'],
                     pd.DataFrame(adata_post1.raw.X, index=adata_post1.obs.index, 
                                  columns = adata_post1.var_names),],axis =1)
 npost1 = len(dfpost1)
 print(npost1)
-adata_post2 = adata[adata.obs['timepoint']=='t=1656hr', :]
+adata_post2 = adata[adata.obs['timepoint']=='t=10 wks', :]
 dfpost2= pd.concat([adata_post2.obs['lineage'], adata_post2.obs['recalled_lin'],
                     pd.DataFrame(adata_post2.raw.X, index=adata_post2.obs.index, 
                                  columns = adata_post2.var_names),],axis =1)
@@ -159,7 +148,6 @@ print(nPOST)
 # The result of this is that index becomes the lineage and the lineage column becomes the value count
 
 linAbundpre= adata_pre.obs['lineage'].value_counts()
-linAbundint = adata_int.obs['lineage'].value_counts()
 # Want the linabundpost from the combined post-treatment samples
 linAbundpost = adata_POST.obs['lineage'].value_counts()
 
@@ -191,8 +179,9 @@ dfpre['linpropchange'] = (dfpre['linproppost']-dfpre['linproppre'])
 linpropchangevec = dfpre['linpropchange']
 plt.figure()
 plt.hist(dfpre['linpropchange'], bins = 100)
-plt.xlabel(' Change in lineage abundance (% of post- % of pre)')
-plt.ylabel('number of cells')
+plt.xlabel(' Change in Lineage Abundance (% of post- % of pre)')
+plt.ylabel('Number of Cells in Pre-treatment Sample')
+
 
 #%% Make a column that is the logfoldchange from post to pre
 
@@ -245,7 +234,7 @@ Xsr = dfsr.drop(columns= [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundp
 X = Xsr
 full_dict = {'fullmat':{}, 'prev':{}, 'labels':{}, 'V':{}, 'lambdas':{}, 'varPC':{}}
 n_neighbors = 90
-n_components = 100
+n_components = 500
 random_state = 0
 
 pca=PCA(copy=True, iterated_power='auto', n_components=500, random_state=0,

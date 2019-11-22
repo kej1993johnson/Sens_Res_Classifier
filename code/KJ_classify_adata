@@ -99,30 +99,27 @@ print(adata.obs['recalled_lin'])
 #%% Add a column to rename the samples by time point
 samps= adata.obs['sample'].unique()
 
-timepoint = np.array(['t=0hr', 't=30hr', 't=1176hr', 't=1656hr'])
+timepoint = np.array(['t=0 wks', 't=7 wks', 't=10 wks'])
 
-adata.obs.loc[adata.obs['sample']==samps[0], 'timepoint']='t=0hr'
-adata.obs.loc[adata.obs['sample']==samps[1], 'timepoint']='t=30hr'
-adata.obs.loc[adata.obs['sample']==samps[2], 'timepoint']='t=1176hr'
-adata.obs.loc[adata.obs['sample']==samps[3], 'timepoint']='t=1656hr'
+adata.obs.loc[adata.obs['sample']==samps[0], 'timepoint']='t=0 wks'
+adata.obs.loc[adata.obs['sample']==samps[1], 'timepoint']='t=7 wks'
+adata.obs.loc[adata.obs['sample']==samps[2], 'timepoint']='t=10 wks'
 
 print(adata.obs['timepoint'].unique())
 
 
-TP = np.array(['pre', 'int', 'post'])
+TP = np.array(['pre', 'post'])
 
 adata.obs.loc[adata.obs['sample']==samps[0], 'TP']='pre'
-adata.obs.loc[adata.obs['sample']==samps[1], 'TP']='int'
+adata.obs.loc[adata.obs['sample']==samps[1], 'TP']='post'
 adata.obs.loc[adata.obs['sample']==samps[2], 'TP']='post'
-adata.obs.loc[adata.obs['sample']==samps[3], 'TP']='post'
 
-adatasel = adata[adata.obs['timepoint']!='t=30hr', :]
 
-sc.pl.umap(adatasel,color='timepoint',palette=['#2c9e2f', '#d604f7', '#c91212'])
-sc.pl.umap(adatasel,color='recalled_lin',palette=['#a00101','#f79d02','#00c6c6'])   
+sc.pl.umap(adata,color='timepoint',palette=['#2c9e2f', '#d604f7', '#c91212'])
+sc.pl.umap(adata,color='recalled_lin',palette=['#a00101','#f79d02','#00c6c6'])   
 
-sc.pl.umap(adatasel,color='timepoint',palette=['#f79d02', '#d604f7', '#00c6c6'])
-sc.pl.umap(adatasel,color='recalled_lin',palette=['#00c6c6','#c91212','#2c9e2f'])
+sc.pl.umap(adata,color='timepoint',palette=['#f79d02', '#d604f7', '#00c6c6'])
+sc.pl.umap(adata,color='recalled_lin',palette=['#00c6c6','#c91212','#2c9e2f'])
   
 #%%
 #top = adata.obs.loc[adata.obs.lineage!='nan','lineage'].value_counts()[:9].index.tolist()
@@ -150,7 +147,7 @@ sc.pl.umap(adata,color='linpropchange')
 sc.pl.umap(adata,color='timepoint',palette=['#2c9e2f','#046df7', '#d604f7', '#c91212'])
                                             
 plt.figure()
-plt.hist(adata.obs.loc[adata.obs.timepoint == 't=0hr','linpropchange'], bins = 100)
+plt.hist(adata.obs.loc[adata.obs.timepoint == 't=0 wks','linpropchange'], bins = 100)
 plt.xlabel(' Change in lineage abundance (% of post- % of pre)')
 plt.ylabel('number of cells')                                          
 
@@ -158,12 +155,11 @@ plt.ylabel('number of cells')
 #adata.obs.loc[(adata.obs['sample']==samp)&(adata.obs.lineage!='nan'),'lineage'].value_counts()[:6])
 classLabel = np.array(['res', 'sens', 'unknown', 'res_est', 'sens_est'])
 
-adata.obs.loc[adata.obs.timepoint=='t=0hr','classLabel'] = 'unknown'
-adata.obs.loc[adata.obs.timepoint=='t=30hr','classLabel'] = 'unknown'
-adata.obs.loc[adata.obs.timepoint=='t=1176hr','classLabel'] = 'unknown'
-adata.obs.loc[adata.obs.timepoint=='t=1656hr','classLabel'] = 'unknown'
-adata.obs.loc[(adata.obs.linpropchange>0)&(adata.obs.timepoint=='t=0hr'), 'classLabel'] = 'res'
-adata.obs.loc[(adata.obs.linpropchange<-0.05)&(adata.obs.timepoint=='t=0hr'), 'classLabel'] = 'sens'
+adata.obs.loc[adata.obs.timepoint=='t=0 wks','classLabel'] = 'unknown'
+adata.obs.loc[adata.obs.timepoint=='t=7 wks','classLabel'] = 'unknown'
+adata.obs.loc[adata.obs.timepoint=='t=10 wks','classLabel'] = 'unknown'
+adata.obs.loc[(adata.obs.linpropchange>0)&(adata.obs.timepoint=='t=0 wks'), 'classLabel'] = 'res'
+adata.obs.loc[(adata.obs.linpropchange<-0.05)&(adata.obs.timepoint=='t=0 wks'), 'classLabel'] = 'sens'
 adata.obs.loc[adata.obs.lineage=='nan', 'classLabel'] = 'unknown'
 #adata.obs.loc[(adata.obs.linpropchange<-0.5)&(adata.obs.timepoint=='t=0hr'), 'classLabel'] = 'sens'
 
@@ -187,7 +183,7 @@ Xsr = dfsr.drop(columns= [ 'classLabel', 'lineage', 'recalled_lin'])
 #Assign the optimal parameters (foudn from KJ_classifier_optimization.py) for building your prediction model 
 # p(x|Sj) where Sj is your training set and x is any new cell (in your test set or in future cells)
 # Will want to redo these optimized hyperparameters with the new way of classifying cells as sensitive or resistant by cluster
-n_neighbors = 63
+n_neighbors = 73
 n_components = 500
 
 knn = KNeighborsClassifier(n_neighbors=n_neighbors)
@@ -228,11 +224,11 @@ sc.pl.umap(adata_sr,color=['TOP2A'])
 sc.pl.umap(adata_sr, color = ['IL1RAPL1'])
 sc.pl.umap(adata_sr,color = ['IL18'])
 
-sc.pl.umap(adatasel,color=['UBE2S'])
-sc.pl.umap(adatasel,color=['NEAT1'])
-sc.pl.umap(adatasel,color=['TOP2A'])
-sc.pl.umap(adatasel, color = ['IL1RAPL1'])
-sc.pl.umap(adatasel,color = ['IL18'])
+sc.pl.umap(adata,color=['UBE2S'])
+sc.pl.umap(adata,color=['NEAT1'])
+sc.pl.umap(adata,color=['TOP2A'])
+sc.pl.umap(adata, color = ['IL1RAPL1'])
+sc.pl.umap(adata,color = ['IL18'])
 
 
 
@@ -285,8 +281,8 @@ ysrr=np.asarray(PCsrdfr[1])
 
 fig = plt.figure(figsize=(10,10))
 
-srs = plt.scatter(xsrs, ysrs, c='g', marker='^', alpha = 1, label = 't=0 hr labeled sensitive')
-srr = plt.scatter(xsrr, ysrr, c='r', marker='^', alpha = 1, label = 't=0 hr labeled resistant')
+srs = plt.scatter(xsrs, ysrs, c='g', marker='^', alpha = 1, label = 't=0 wks labeled sensitive')
+srr = plt.scatter(xsrr, ysrr, c='r', marker='^', alpha = 1, label = 't=0 wks labeled resistant')
 
 plt.xlabel('PC1')
 plt.ylabel('PC2')
@@ -304,9 +300,12 @@ adata_unk= adata[(adata.obs['classLabel']=='unknown'), :]
 Xunk = pd.DataFrame(adata_unk.raw.X,index=adata_unk.obs.index,
                             columns=adata_unk.var_names)
 #%% Use knn to make a vector of predicted classes
-thres_prob = 0.3
+thres_prob = 0.2
 y_unk = knn.predict(pca.transform(Xunk))
 pre_prob= knn.predict_proba(pca.transform(Xunk))
+
+
+
 #%% Vary the threshold probability 
 thres_prob = 0.2
 B = pre_prob[:,1]>thres_prob
@@ -322,12 +321,24 @@ sc.pl.umap(adata,color=['class_est'])
 adata.obs.loc[adata.obs.class_est==1, 'classLabel'] = 'res'
 adata.obs.loc[adata.obs.class_est==0, 'classLabel'] = 'sens'
 
-adatasel = adata[adata.obs['timepoint']!='t=30hr', :]
+#%% Make a new .obs variable that divides into time point and class label
+TPclass = np.array(['t=0 wks sens', 't=0 wks res', 't=7 wks sens', 't=7 wks res', 't=10 wks sens', 't=10 wks res'])
+
+adata.obs.loc[(adata.obs.timepoint=='t=0 wks') & (adata.obs.classLabel == 'sens'), 'TPclass'] = 't=0 wks sens'
+adata.obs.loc[(adata.obs.timepoint=='t=0 wks') & (adata.obs.classLabel == 'res'), 'TPclass'] = 't=0 wks res'
+adata.obs.loc[(adata.obs.timepoint=='t=7 wks') & (adata.obs.classLabel == 'sens'), 'TPclass'] = 't=7 wks sens'
+adata.obs.loc[(adata.obs.timepoint=='t=7 wks') & (adata.obs.classLabel == 'res'), 'TPclass'] = 't=7 wks res'
+adata.obs.loc[(adata.obs.timepoint=='t=10 wks') & (adata.obs.classLabel == 'sens'), 'TPclass'] = 't=10 wks sens'
+adata.obs.loc[(adata.obs.timepoint=='t=10 wks') & (adata.obs.classLabel == 'res'), 'TPclass'] = 't=10 wks res'
+
+sc.pl.umap(adata,color=['TPclass'])
+#%%
 
 
-sc.pl.umap(adatasel,color=['classLabel'])
+
+sc.pl.umap(adata,color=['classLabel'])
 # Extract the data we need and plot some PCs
-adata_pre = adata[adata.obs['timepoint']=='t=0hr', :]
+adata_pre = adata[adata.obs['timepoint']=='t=0 wks', :]
 dfpre = pd.concat([adata_pre.obs['classLabel'],
                pd.DataFrame(adata_pre.raw.X,index=adata_pre.obs.index,
                             columns=adata_pre.var_names),], axis=1) 
@@ -383,7 +394,7 @@ plt.legend(loc=1, prop={'size': 15})
 
 
 #%% Extract the data we need for second time point
-adata_post1 = adata[adata.obs['timepoint']=='t=1176hr', :]
+adata_post1 = adata[adata.obs['timepoint']=='t=7 wks', :]
 dfpost1= pd.concat([adata_post1.obs['classLabel'],
                pd.DataFrame(adata_post1.raw.X,index=adata_post1.obs.index,
                             columns=adata_post1.var_names),], axis=1) 
@@ -428,7 +439,7 @@ plt.ylabel('PC2')
 
 plt.legend(loc=1, prop={'size': 15})
 #%% Extract the data we need for third time point
-adata_post2 = adata[adata.obs['timepoint']=='t=1656hr', :]
+adata_post2 = adata[adata.obs['timepoint']=='t=10 wks', :]
 dfpost2= pd.concat([adata_post2.obs['classLabel'],
                pd.DataFrame(adata_post2.raw.X,index=adata_post2.obs.index,
                             columns=adata_post2.var_names),], axis=1) 
@@ -515,13 +526,92 @@ path = "/Users/kj22643/Documents/Documents/Grant_dose_optimization/data"
 fullpath = os.path.join(path, filename)
 dfphi.to_csv("phi_t_est_pyth.csv")
 
+#%% Output a csv with the gene cell matrix and the class label
+
+dfall= pd.concat([adata.obs['classLabel'],
+               pd.DataFrame(adata.raw.X,index=adata.obs.index,
+                            columns=adata.var_names),], axis=1) 
+
+nall = len(dfall)
+print(nall)
+
+yall = dfall.classLabel=='res'
+# Export the pre-treatment class labels
+yall.to_csv("SRlabeled_all.csv")
+filename = "SRlabeled_all.csv"
+# Send this to Didi for iTalk analysis
+#%% Find and plot the gene loadings and do differential analysis on these top genes
+
+# identify the top 10 components in PC1
+ordered_comp1=PC1.iloc[(-np.abs(components[0,:])).argsort()]
+x = -np.abs(components[0,:]);
+ind = np.unravel_index(np.argsort(x, axis=None), x.shape)
 
 
+indtop = ordered_comp1.index[0:50]
+
+ordered_comp2=PC2.iloc[(-np.abs(components[1,:])).argsort()]
+x2 = -np.abs(components[1,:]);
+ind2 = np.unravel_index(np.argsort(x2, axis=None), x2.shape)
 
 
+indtop = ordered_comp1.index[0:50]
+indtop2 = ordered_comp2.index[0:50]
+compdf1 = compdf.index==0
+compdf2 = compdf.index==1
+comps1 = compdf[compdf1]
+comps2 = compdf[compdf2]
+
+#%%
+
+fig = plt.figure(figsize=(5,5))
+plt.quiver(np.zeros(1), np.zeros(1),
+           comps1['UBE2S'], comps2['UBE2S'], angles='xy', scale_units='xy', scale =2, color = 'g')
+plt.quiver(np.zeros(1), np.zeros(1),
+           comps1['NEAT1'], comps2['NEAT1'], angles='xy', scale_units='xy', scale =2, color = 'r')
+plt.quiver(np.zeros(1), np.zeros(1),
+           comps1['TOP2A'], comps2['TOP2A'], angles='xy', scale_units='xy', scale =2, color = 'b')
+plt.quiver(np.zeros(1), np.zeros(1),
+           comps1['SGO2'], comps2['SGO2'], angles='xy', scale_units='xy', scale =2, color = 'c')
+plt.quiver(np.zeros(1), np.zeros(1),
+           comps1['FOSL1'], comps2['FOSL1'], angles='xy', scale_units='xy', scale =2, color = 'k')
+plt.quiver(np.zeros(1), np.zeros(1),
+           comps1['IL11'], comps2['IL11'], angles='xy', scale_units='xy', scale =2, color = 'y')
+plt.quiver(np.zeros(1), np.zeros(1),
+           comps1['FST'], comps2['FST'], angles='xy', scale_units='xy', scale =2, color = 'm')
+plt.quiver(np.zeros(1), np.zeros(1),
+           comps1['S100A4'], comps2['S100A4'], angles='xy', scale_units='xy', scale =2, color = 'chartreuse')
+plt.xlabel('Loadings PC1')
+plt.ylabel(' Loadings PC2')
+#%% Add labels based on feature names (here just numbers)
+feature_names = np.arange(components.shape[1])
+for i,j,z in zip(comps1[indtop]+0.02, comps2[indtop]+0.02,indtop.name):
+    plt.text(j, i, z, ha='center', va='center')
 
 
+#%% Make an anndata object with only the top 100 genes
+adataselpre = adata_pre[:, indtop];
+adataselpresens = adataselpre.obs['classLabel']=='sens'
+adataselpreres = adataselpre.obs['classLabel'] == 'res'
+
+dfpresens = adataselpresens.mean(axis=0)
+#%%
 
 
+sc.pl.matrixplot(adata, indtop, groupby = 'TPclass', swap_axes = True, standard_scale = 'var', figsize = [5, 10])
+#%%
+sc.pl.matrixplot(adata, indtop, groupby = 'classLabel', swap_axes = True)
+sc.pl.matrixplot(adata, indtop2, groupby = 'classLabel', swap_axes = True)
 
+sc.pl.matrixplot(adata, ['UBE2S', 'NEAT1', 'TOP2A', 'MKI67', 'AURKA', 'SGO2', 'CDK1', 'NUSAP1', 'KPNA2'], groupby = 'classLabel', swap_axes = True)
+sc.pl.matrixplot(adata, ['UBE2S', 'NEAT1', 'TOP2A', 'MKI67', 'AURKA', 'SGO2', 'CDK1', 'NUSAP1', 'KPNA2'], groupby = 'TPclass', swap_axes = True)
 
+#%%
+sc.pl.umap(adata,color=['UBE2S'])
+sc.pl.umap(adata,color=['NEAT1'])
+sc.pl.umap(adata,color=['TOP2A'])
+sc.pl.umap(adata, color = ['FGF5'])
+sc.pl.umap(adata,color = ['FGFR1'])
+sc.pl.umap(adata, color = ['IL1RAPL1'])
+sc.pl.umap(adata, color = ['IL18'])
+sc.pl.umap(adata,color= ['NONO'])
