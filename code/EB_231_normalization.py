@@ -4,7 +4,7 @@ Spyder Editor
 
 This is a temporary script file.
 """
-
+%reset
 import numpy as np
 import pandas as pd
 import os
@@ -32,7 +32,7 @@ dic = {'1':'Doxneg','2':'Doxpos','3':'107Aziz','4':'113Aziz'}
 adata.obs['sample'] = adata.obs.index.str[-1].map(dic)
 adata.obs['sample'] = adata.obs['sample'].astype('category').cat.reorder_categories(['Doxneg','Doxpos','107Aziz','113Aziz'])
 
-
+#%%
 #since we used the "filtered_feature_bc_matrix", cellranger had already done
 #   filtering; this step is just a formality to add n_genes, n_counts and 
 #   remove undetected genes

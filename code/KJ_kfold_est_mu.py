@@ -15,6 +15,8 @@ Created on Wed Jul  3 12:22:02 2019
 # the pre=treatment, intermediate, and post-treatment samples
 
 
+%reset
+
 import numpy as np
 import pandas as pd
 import os
@@ -68,12 +70,14 @@ adata.obs.head()
 # current samples:
 #BgL1K
 #30hr
-#Rel-1
-#Rel-2
+#Rel-1 AA107 7 weeks
+#Rel-2 AA113  10 weeks - 1 day
 # We will change these to time points
 # Count the number of unique lineages in all the cells
 uniquelins = adata.obs['lineage'].unique()
 nunique = len(uniquelins)
+
+
 
 #%% Identify lineages that have been recalled from the pre-treatment sample
 # Make a column labeled recalled lin that can be use to identify the specific lineages of interest
@@ -92,20 +96,27 @@ adata.obs.loc[adata.obs.lineage.isin(reslin)==False,'recalled_lin'] = 'na'
 adata.obs.loc[adata.obs.lineage.isin(senslin)==True,'recalled_lin'] = 'sens'
 
 print(adata.obs['recalled_lin'])
-
 #%% Add a column to rename the samples by time point
 samps= adata.obs['sample'].unique()
 
-timepoint = np.array(['t=0hr', 't=30hr', 't=1344hr'])
+timepoint = np.array(['t=0hr', 't=30hr', 't=1176hr', 't=1656hr'])
 
 adata.obs.loc[adata.obs['sample']==samps[0], 'timepoint']='t=0hr'
 adata.obs.loc[adata.obs['sample']==samps[1], 'timepoint']='t=30hr'
-adata.obs.loc[adata.obs['sample']==samps[2], 'timepoint']='t=1344hr'
-adata.obs.loc[adata.obs['sample']==samps[3], 'timepoint']='t=1344hr'
+adata.obs.loc[adata.obs['sample']==samps[2], 'timepoint']='t=1176hr'
+adata.obs.loc[adata.obs['sample']==samps[3], 'timepoint']='t=1656hr'
 
 print(adata.obs['timepoint'].unique())
 
+TP = np.array(['pre', 'int', 'post'])
 
+adata.obs.loc[adata.obs['sample']==samps[0], 'TP']='pre'
+adata.obs.loc[adata.obs['sample']==samps[1], 'TP']='int'
+adata.obs.loc[adata.obs['sample']==samps[2], 'TP']='post'
+adata.obs.loc[adata.obs['sample']==samps[3], 'TP']='post'
+
+sc.pl.umap(adata,color='timepoint',palette=['#2c9e2f','#046df7', '#d604f7', '#c91212'])
+sc.pl.umap(adata,color='recalled_lin',palette=['#a00101','#f79d02','#00c6c6'])                                         
 
 #%% Separately make dataframes for the pre-treatment, intermediate, and post treatment samples
 # t=0 hr (pre-treatment), 3182 pre treatment cells
@@ -120,6 +131,7 @@ adata_pre = adata[adata.obs['timepoint']=='t=0hr', :]
 dfpre = pd.concat([adata_pre.obs['lineage'], adata_pre.obs['recalled_lin'],
                pd.DataFrame(adata_pre.raw.X,index=adata_pre.obs.index,
                             columns=adata_pre.var_names),], axis=1) 
+sc.pl.umap(adata_pre,color='recalled_lin',palette=['#a00101','#f79d02','#00c6c6']) 
 npre = len(dfpre)
 print(npre)
 # t = 30 hr (intermediate timepoint) 5169 int treatment cells
@@ -129,17 +141,33 @@ dfint = pd.concat([adata_int.obs['lineage'], adata_int.obs['recalled_lin'],
                                 columns = adata_int.var_names),], axis=1)
 nint = len(dfint)
 print(nint)
-# t=1344 hr (~roughly 8 weeks), 10332 post treatment cells
-adata_post = adata[adata.obs['timepoint']=='t=1344hr', :]
-dfpost = pd.concat([adata_post.obs['lineage'], adata_post.obs['recalled_lin'],
-                    pd.DataFrame(adata_post.raw.X, index=adata_post.obs.index, 
-                                 columns = adata_post.var_names),],axis =1)
-npost = len(dfpost)
-print(npost)
+# t=1176 hr (~roughly 7 weeks), 10332 post treatment cells
+adata_post1 = adata[adata.obs['timepoint']=='t=1176hr', :]
+dfpost1 = pd.concat([adata_post1.obs['lineage'], adata_post1.obs['recalled_lin'],
+                    pd.DataFrame(adata_post1.raw.X, index=adata_post1.obs.index, 
+                                 columns = adata_post1.var_names),],axis =1)
+npost1 = len(dfpost1)
+print(npost1)
+adata_post2 = adata[adata.obs['timepoint']=='t=1656hr', :]
+dfpost2= pd.concat([adata_post2.obs['lineage'], adata_post2.obs['recalled_lin'],
+                    pd.DataFrame(adata_post2.raw.X, index=adata_post2.obs.index, 
+                                 columns = adata_post2.var_names),],axis =1)
+npost2 = len(dfpost2)
+print(npost2)
+
+adata_POST= adata[adata.obs['TP']=='post', :]
+dfPOST= pd.concat([adata_POST.obs['lineage'], adata_POST.obs['recalled_lin'],
+                    pd.DataFrame(adata_POST.raw.X, index=adata_POST.obs.index, 
+                                 columns = adata_POST.var_names),],axis =1)
+nPOST= len(dfPOST)
+print(nPOST)
 #%% Try to add a .obs column that records lineage abundance from the different samples
+# The result of this is that index becomes the lineage and the lineage column becomes the value count
+
 linAbundpre= adata_pre.obs['lineage'].value_counts()
 linAbundint = adata_int.obs['lineage'].value_counts()
-linAbundpost = adata_post.obs['lineage'].value_counts()
+# Want the linabundpost from the combined post-treatment samples
+linAbundpost = adata_POST.obs['lineage'].value_counts()
 
 # Start by adding the linabundpre and lin abund post to the pre-treatment data frame
 df1 = pd.DataFrame(linAbundpre)
@@ -154,14 +182,26 @@ df2['linabundpost']= df2.lineage
 df2=df2.drop(['lineage'], axis=1)
 df2['lineage'] = df2.index
 df2=df2.drop(index='nan')
-#%% Merge the linage abundance data frames from the pre and post treatment samples into dfpre
+#  Merge the linage abundance data frames from the pre and post treatment samples into dfpre
 dfpre= pd.DataFrame.merge(df1, dfpre, left_on=['lineage'], 
               right_on=['lineage'], how='right')
 dfpre = pd.DataFrame.merge(df2, dfpre, left_on=['lineage'],
               right_on=['lineage'], how='right') 
 dfpre['linabundpost'] = dfpre['linabundpost'].fillna(0)
 dfpre['linabundpre']= dfpre['linabundpre'].fillna(0)
+
+dfpre['linproppost'] = dfpre['linabundpost']/nPOST
+dfpre['linproppre'] = dfpre['linabundpre']/npre
+
+dfpre['linpropchange'] = (dfpre['linproppost']-dfpre['linproppre'])
+linpropchangevec = dfpre['linpropchange']
+plt.figure()
+plt.hist(dfpre['linpropchange'], bins = 100)
+plt.xlabel(' Change in lineage abundance (% of post- % of pre)')
+plt.ylabel('number of cells')
+
 #%% Make a column that is the logfoldchange from post to pre
+
 dfpre['foldchange'] =  (dfpre['linabundpost']-dfpre['linabundpre'])
 #dfpre['foldchange'] =  ((dfpre['linabundpost']/npost)-(dfpre['linabundpre']/npre))/(dfpre['linabundpre']/npre)
 print(dfpre['foldchange'].unique())
@@ -184,14 +224,13 @@ plt.hist(dfpre['foldchange'],range = [0, 500], bins = 100)
 plt.xlabel('foldchange of lineage abundance')
 plt.ylabel('number of cells')
 
-
-
-#%% Make the survivor column, but don't label it yet. 
+#%% Make the survivor column in the pre-treatment data based on linpropchange 
 #dfpre['survivor'] =np.where(dfpre['linabundpost'] >1000, 'res','sens'
 # Want to call cells that have an increase in lineage abundance resistant
-dfpre.loc[dfpre.foldchange>0, 'survivor'] = 'res'
+dfpre.loc[dfpre.linpropchange>0, 'survivor'] = 'res'
 
-dfpre.loc[dfpre.foldchange<-200, 'survivor']= 'sens'
+dfpre.loc[dfpre.linpropchange<-0.05, 'survivor']= 'sens' # make a strict cutoff of wer're sure it decreases significantly
+#dfpre.loc[dfpre.foldchange<-0.7, 'survivor']= 'sens'
 survivorvec = dfpre['survivor']
 
 
@@ -206,7 +245,8 @@ y= pd.factorize(dfsr['survivor'])[0]
 y ^= 1
 mu_sr = sum(y)/len(y)
 print(mu_sr)
-Xsr = dfsr.drop(columns= [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'foldchange', 'logfoldchange', 'survivor'])
+Xsr = dfsr.drop(columns= [ 'lineage', 'linabundpost', 'recalled_lin', 'linabundpre', 'linproppost', 'linproppre', 'linpropchange', 'foldchange', 'logfoldchange', 'survivor'])
+
 ntrain = len(dfsr)
 
 
@@ -258,7 +298,7 @@ n_classes = len(np.unique(y))
 # %%Assign the optimal parameters (foudn from KJ_classify_sklearn.py) for building your prediction model 
 # p(x|Sj) where Sj is your training set and x is any new cell (in your test set or in future cells)
 n_neighbors = 90
-n_components = 500
+n_components = 100
 random_state = 0
 
 Copt = 1000
@@ -305,10 +345,10 @@ for i in range(kCV):
     mu_PCA[i] = sum(y_PCA[i])/ folds_dict['ntest'][i]
     sigmasq_PCA[i] = mu_PCA[i]*(1-mu_PCA[i])/folds_dict['ntest'][i]
     # SVM MODEL OUTPUTS FOR EACH FOLD
-    clf.fit(X_train, y_train)
-    y_SVM[i]= clf.predict(X_test)
-    mu_SVM[i] = sum(y_SVM[i])/folds_dict['ntest'][i]
-    sigmasq_SVM[i] = mu_SVM[i]*(1-mu_SVM[i])/folds_dict['ntest'][i]
+    # clf.fit(X_train, y_train)
+    # y_SVM[i]= clf.predict(X_test)
+    # mu_SVM[i] = sum(y_SVM[i])/folds_dict['ntest'][i]
+    # sigmasq_SVM[i] = mu_SVM[i]*(1-mu_SVM[i])/folds_dict['ntest'][i]
     
 #%%  Put into folds_dict
 folds_dict['V_train'] = V_train
